@@ -65,7 +65,7 @@ The app supports video wall controllers (also called video wall processors) that
 Reasons for this approach:
 
 - **More projectors on one computer.** Typical graphics cards have four outputs, often fewer. With two controllers, eight projectors run from two outputs.
-- **Same frame timing.** The four projectors on one controller receive their images from one shared 4K frame, so they always switch together, including in the overlaps.
+- **Same frame timing.** The four projectors on one controller receive their images from one shared 4K frame.
 - **Simple on the software side.** To the operating system each controller is a single 4K display. The app opens one full-screen window on it and places the four projector images into the cells.
 
 Under *Set up* the controller mode is chosen per output: *2 × 2*, *2 side by side*, *2 stacked*, *3 side by side*, *4 side by side* or *4 stacked*, or *Full* when a projector is connected directly. The projectors of that output are then assigned to the cells in order. If the display resolution does not match the mode, a hint appears next to it. On the controller itself, use the plain mode without bezel correction; overlap and blending are handled by the app.
