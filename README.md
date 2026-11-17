@@ -1,6 +1,6 @@
 # Projection Studio
 
-Projection Studio ist ein Werkzeug für 3D-Projection-Mapping auf macOS und Windows. Es bestimmt die Lage und die Optik jedes Projektors anhand weniger Punktkorrespondenzen zwischen einem 3D-Modell (OBJ) und dem realen Projektionsbild. Darauf aufbauend berechnet es Überblendmasken mit Helligkeitsausgleich, erlaubt eine gitterbasierte Feinkorrektur und gibt das Ergebnis entweder direkt aus oder übergibt es an TouchDesigner.
+Projection Studio ist ein Werkzeug für 3D-Projection-Mapping auf macOS und Windows. Es bestimmt die Lage und die Optik jedes Projektors anhand weniger Punktkorrespondenzen zwischen einem 3D-Modell (OBJ) und dem realen Projektionsbild. Darauf aufbauend berechnet es Überblendmasken mit Helligkeitsausgleich, erlaubt eine Feinkorrektur über Gitter und frei gesetzte Punkte und gibt das Ergebnis entweder direkt aus oder übergibt es an TouchDesigner.
 
 ![Kalibrieren](docs/screenshots/02-kalibriert.png)
 
@@ -44,7 +44,9 @@ Daraus ergaben sich die Anforderungen an dieses Werkzeug:
 
 **Überblendung.** Für jeden Projektor wird auf der GPU berechnet, welche anderen Projektoren dieselbe Oberfläche treffen. Der Anteil jedes Projektors folgt der Bestrahlungsstärke E ∝ cos(Einfallswinkel) / (Abstand² · cos³(Achsenwinkel)), weich ausgeblendet zu den Bildrändern und mit einstellbarem Gamma. Flächen jenseits eines Grenzwinkels können ausgeschlossen werden. Eigene Masken mit weicher Kante werden multipliziert.
 
-**Feinkorrektur.** Ein Gitter mit 3 × 3 bis 9 × 9 Stützpunkten pro Projektor, dazwischen Catmull-Rom-Interpolation. Die Ausgabe sucht pro Pixel per Fixpunktiteration die Quellposition, im Shader und identisch in TouchDesigner.
+**Feinkorrektur.** Zwei Ebenen pro Projektor. Ein Gitter mit 2 × 2 bis 33 × 33 Stützpunkten, Spalten und Zeilen getrennt wählbar, bikubisch nach Hermite interpoliert. Ohne weitere Eingriffe entspricht das Catmull-Rom, optional lassen sich an jedem Gitterpunkt Bézier-Anfasser ziehen, die den Verlauf der Linien biegen. Dazu kommen frei gesetzte Punkte an beliebiger Stelle. Jeder wirkt mit einem Wendland-Kern begrenzter Reichweite, und die Gewichte werden so gelöst, dass jeder Punkt sein Ziel exakt trifft. Ein neu gesetzter Punkt hält das Bild an seiner Stelle fest, bis er gezogen wird. Faltet sich das Bild durch zu starke Korrekturen, weist die App darauf hin.
+
+Für die Ausgabe wird die Abbildung umgekehrt: zu jedem Ausgabepixel die Quellposition, per Newton-Verfahren. In der App geschieht das in einem Hintergrund-Thread als Tabelle (während des Ziehens grob, danach mit 480 × 270 Stützstellen, Fehler unter 0,2 px), die die GPU linear interpoliert. Der Aufwand pro Bild hängt damit nicht von der Zahl der Punkte ab. Für TouchDesigner entsteht ein GLSL-Shader mit denselben Werten als Konstanten, der die Umkehrung direkt rechnet. Er stimmt mit der App auf etwa 0,001 px überein.
 
 **Ausgabe und Wiedergabe.** Pro Ausgang ein Vollbildfenster. Jeder Projektor wird in ein eigenes Renderziel mit Multisampling gerendert und anschließend in einem Durchgang mit Feinkorrektur und Maske in sein Bildviertel gesetzt. Videos werden auf das Modell gelegt (Draufsicht oder Modell-UV). Alle Fenster folgen einer gemeinsamen Uhr und gleichen kleine Abweichungen über die Abspielgeschwindigkeit aus, größere durch Springen.
 
@@ -58,7 +60,11 @@ Gründe für diesen Weg:
 - **Gleicher Bildzeitpunkt.** Die vier Projektoren an einem Controller bekommen ihre Bilder aus einem gemeinsamen 4K-Bild. Sie wechseln deshalb immer gleichzeitig, auch in den Überlappungen.
 - **Einfache Software-Seite.** Für das Betriebssystem ist jeder Controller ein einzelner 4K-Bildschirm. Die App öffnet darauf ein Vollbildfenster und setzt die vier Projektorbilder in die Viertel.
 
-Unter *Einrichten* lässt sich je Ausgang die Aufteilung wählen: *2 × 2* für einen Video-Wall-Controller, *1 × 2* für einen Splitter mit zwei Ausgängen, *Ganz*, wenn der Projektor direkt angeschlossen ist. Am Controller selbst sollte der reine 2 × 2-Modus ohne Rahmenausgleich (Bezel Correction) eingestellt sein. Überlappung und Überblendung übernimmt die App.
+Unter *Einrichten* wird je Ausgang der Modus des Controllers gewählt: *2 × 2*, *2 nebeneinander*, *2 übereinander*, *3 nebeneinander*, *4 nebeneinander* oder *4 übereinander*, bzw. *Ganz*, wenn ein Projektor direkt angeschlossen ist. Die Projektoren des Ausgangs werden dann der Reihe nach auf die Felder verteilt. Passt die Auflösung des Bildschirms nicht zum Modus, steht ein Hinweis daneben. Am Controller selbst sollte der reine Modus ohne Rahmenausgleich (Bezel Correction) eingestellt sein. Überlappung und Überblendung übernimmt die App.
+
+Die Bildschirme werden über eine Auswahl zugewiesen. Die Ausgänge öffnen sich randlos im Vollbild auf dem gewählten Bildschirm, unter macOS und Windows. Wählt man für einen Ausgang den Bildschirm eines anderen, tauschen die beiden. Wird ein Bildschirm abgesteckt, schließt sein Ausgang. Kommt er wieder, öffnet sich der Ausgang dort erneut, auch wenn das System dem Bildschirm eine neue Kennung gegeben hat. Ändert sich die Auflösung, passt sich das Vollbild an.
+
+Zum Kalibrieren gibt es zusätzlich einen **Testausgang**. Dort lässt sich ein einzelner Projektor ohne Controller direkt anschließen, und der Ausgang zeigt immer den gerade gewählten Projektor im ganzen Bild. Mit der Option *Maus springt mit* wandert der Mauszeiger beim Wechsel des Projektors auf dessen Bild, auf dem Testausgang oder im richtigen Feld des Controllers.
 
 ## Arbeitsablauf
 

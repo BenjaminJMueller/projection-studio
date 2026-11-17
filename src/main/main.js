@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import dgram from 'node:dgram';
 import { oscMessage } from '../core/osc.js';
 import { checkForUpdates, updatesEnabled } from './updater.js';
+import { execFile } from 'node:child_process';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..', '..');
@@ -105,6 +106,21 @@ function closeOutput(displayId) {
 }
 
 ipcMain.handle('displays:list', () => listDisplays());
+
+/** Mauszeiger setzen (x, y in Bildschirmpunkten wie screen.getAllDisplays). Ohne native Erweiterung. */
+ipcMain.handle('cursor:move', (_e, { x, y }) => new Promise((resolve) => {
+  const done = (err) => resolve(!err);
+  if (isMac) {
+    // CoreGraphics über JavaScript for Automation, braucht keine Bedienungshilfen-Freigabe
+    execFile('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `ObjC.import('CoreGraphics'); $.CGWarpMouseCursorPosition({ x: ${Number(x)}, y: ${Number(y)} }); $.CGAssociateMouseAndMouseCursorPosition(true);`], done);
+  } else if (process.platform === 'win32') {
+    const p = screen.dipToScreenPoint({ x: Number(x), y: Number(y) });
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      `Add-Type -Name M -Namespace W -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);'; [W.M]::SetCursorPos(${Math.round(p.x)}, ${Math.round(p.y)})`], { windowsHide: true }, done);
+  } else {
+    execFile('xdotool', ['mousemove', String(Math.round(x)), String(Math.round(y))], done);
+  }
+}));
 ipcMain.handle('output:open', (_e, { displayId, outputName }) => openOutput(displayId, outputName));
 ipcMain.handle('output:close', (_e, { displayId }) => closeOutput(displayId));
 ipcMain.handle('output:closeAll', () => {
@@ -224,6 +240,14 @@ app.whenReady().then(() => {
   setTimeout(() => checkForUpdates(mainWin, false), 5000);
   screen.on('display-added', () => mainWin?.webContents.send('displays:changed'));
   screen.on('display-removed', () => mainWin?.webContents.send('displays:changed'));
+  // Auflösung oder Anordnung geändert: Ausgabefenster wieder bildschirmfüllend setzen
+  screen.on('display-metrics-changed', (_e, d) => {
+    const w = outputWins.get(d.id);
+    if (w && !w.isDestroyed()) {
+      if (isMac) { w.setSimpleFullScreen(false); w.setBounds(d.bounds); w.setSimpleFullScreen(true); } else { w.setFullScreen(false); w.setBounds(d.bounds); w.setFullScreen(true); }
+    }
+    mainWin?.webContents.send('displays:changed');
+  });
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
   });

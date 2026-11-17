@@ -34,6 +34,7 @@ export function newProject() {
     outputs: [
       { id: 'A', name: 'HDMI A', displayId: null, layout: '2x2' },
       { id: 'B', name: 'HDMI B', displayId: null, layout: '2x2' },
+      { id: 'T', name: 'Testausgang', displayId: null, layout: '1x1', solo: true },
     ],
     projectors: defaultProjectors(),
     blend: {
@@ -48,17 +49,54 @@ export function newProject() {
       incFilter: true, // Streiflicht ausblenden
       maxIncidence: 80,
     },
-    view: { outputMode: 'edges', showPoints: true, showMask: false },
+    view: { outputMode: 'edges', showPoints: true, showMask: false, mouseFollow: false },
     td: { live: false, host: '127.0.0.1', port: 7000 },
     playback: { src: null, name: null, mapping: 'top', loop: true },
   };
 }
 
+/**
+ * Aufteilungen eines Ausgangs (Zeilen × Spalten). 2 × 2 entspricht einem Video-Wall-Controller
+ * wie dem LogiLink HD0054, der ein 4K-Bild auf vier Full-HD-Projektoren verteilt.
+ */
+export const LAYOUTS = {
+  '1x1': { rows: 1, cols: 1, label: 'Ganz', hint: 'Projektor direkt angeschlossen' },
+  '2x2': { rows: 2, cols: 2, label: '2 × 2', hint: 'Video-Wall-Controller, 4 Projektoren im Quadrat' },
+  '1x2': { rows: 1, cols: 2, label: '2 nebeneinander', hint: 'Controller oder Splitter, 2 Projektoren' },
+  '2x1': { rows: 2, cols: 1, label: '2 übereinander', hint: 'Controller, 2 Projektoren' },
+  '1x3': { rows: 1, cols: 3, label: '3 nebeneinander', hint: 'Controller, 3 Projektoren' },
+  '1x4': { rows: 1, cols: 4, label: '4 nebeneinander', hint: 'Controller, 4 Projektoren' },
+  '4x1': { rows: 4, cols: 1, label: '4 übereinander', hint: 'Controller, 4 Projektoren' },
+};
+export const layoutOf = (o) => LAYOUTS[o?.layout] || LAYOUTS['1x1'];
+export const cellCount = (o) => (o?.solo ? 1 : layoutOf(o).rows * layoutOf(o).cols);
+
 /** Rechteck eines Projektors im Ausgabebild (normiert 0..1). */
 export function quadrantRect(output, quadrant) {
-  if (!output || output.layout === '1x1') return { x: 0, y: 0, w: 1, h: 1 };
-  if (output.layout === '1x2') return { x: (quadrant % 2) * 0.5, y: 0, w: 0.5, h: 1 };
-  return { x: (quadrant % 2) * 0.5, y: Math.floor(quadrant / 2) * 0.5, w: 0.5, h: 0.5 };
+  if (!output || output.solo) return { x: 0, y: 0, w: 1, h: 1 };
+  const { rows, cols } = layoutOf(output);
+  const q = ((quadrant % (rows * cols)) + rows * cols) % (rows * cols);
+  return { x: (q % cols) / cols, y: Math.floor(q / cols) / rows, w: 1 / cols, h: 1 / rows };
+}
+
+/** Name eines Felds, z. B. „oben links“ oder „2. von links“. */
+export function cellName(output, q) {
+  const { rows, cols } = layoutOf(output);
+  if (rows === 2 && cols === 2) return QUADRANT_NAMES[q] || '';
+  if (rows === 1 && cols === 2) return q ? 'rechts' : 'links';
+  if (rows === 2 && cols === 1) return q ? 'unten' : 'oben';
+  if (rows === 1) return `${q + 1}. von links`;
+  if (cols === 1) return `${q + 1}. von oben`;
+  return `Feld ${q + 1}`;
+}
+
+/** Projektoren eines Ausgangs der Reihe nach auf die Felder verteilen. Rückgabe: Anzahl, die nicht passt. */
+export function arrangeOutput(project, outputId) {
+  const o = project.outputs.find((x) => x.id === outputId);
+  const n = cellCount(o);
+  const ps = project.projectors.filter((p) => p.output === outputId);
+  ps.forEach((p, i) => { p.quadrant = i % n; });
+  return Math.max(0, ps.length - n);
 }
 
 export const QUADRANT_NAMES = ['oben links', 'oben rechts', 'unten links', 'unten rechts'];
@@ -70,6 +108,8 @@ export function migrateProject(p) {
   out.view = { ...base.view, ...(p.view || {}) };
   out.td = { ...base.td, ...(p.td || {}) };
   out.playback = { ...base.playback, ...(p.playback || {}) };
+  out.outputs = (p.outputs || base.outputs).map((o) => ({ ...o }));
+  if (!out.outputs.some((o) => o.solo)) out.outputs.push({ ...base.outputs[2] });
   out.projectors = (p.projectors || base.projectors).map((pj, i) => ({ ...base.projectors[i % 8], ...pj, color: base.projectors[i % 8].color }));
   return out;
 }

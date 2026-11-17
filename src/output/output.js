@@ -5,7 +5,8 @@ import { buildModel, applySolutionToCamera, makeUvGridTexture } from '../shared/
 import { quadrantRect } from '../shared/project.js';
 import { renderMaskCanvas } from '../shared/masks.js';
 import { fileUrl, targetTime, syncCorrection } from '../shared/playback.js';
-import { WARP_GLSL, warpUniformArray, isIdentity, forward, gridBase } from '../shared/warp.js';
+import { isIdentity, makeWarp } from '../shared/warp.js';
+import { drawWarpOverlay } from '../shared/warpdraw.js';
 
 // Rohe Farbwerte durchreichen: Video, Masken und Testbilder werden 1:1 ausgegeben.
 THREE.ColorManagement.enabled = false;
@@ -23,7 +24,7 @@ renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
 maskCanvas.style.display = 'none';
 const ov = ovCanvas.getContext('2d');
 
-const st = { project: null, activeId: null, activePointId: null, modelPath: null, model: null, blend: {}, blendImgs: {}, mouse: null, play: null, warpEdit: false, markers: true, activeHandle: null };
+const st = { project: null, activeId: null, activePointId: null, modelPath: null, model: null, blend: {}, blendImgs: {}, mouse: null, play: null, warpEdit: false, markers: true, activeHandle: null, activePin: null };
 
 // ---------------- GPU-Zusammensetzung pro Projektor: 3D-Bild -> Feinkorrektur -> Maske
 const rts = new Map(); // projectorId -> WebGLRenderTarget
@@ -33,7 +34,7 @@ const compMat = new THREE.ShaderMaterial({
   glslVersion: THREE.GLSL3,
   uniforms: {
     tScene: { value: null }, tMask: { value: null }, uMaskOn: { value: 0 },
-    uWarp: { value: warpUniformArray(null) }, uWarpCols: { value: 2 }, uWarpRows: { value: 2 }, uWarpOn: { value: 0 },
+    tWarp: { value: null }, uWarpOn: { value: 0 },
   },
   vertexShader: 'out vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
   fragmentShader: `precision highp float;
@@ -42,10 +43,11 @@ out vec4 outColor;
 uniform sampler2D tScene;
 uniform sampler2D tMask;
 uniform int uMaskOn;
-${WARP_GLSL}
+uniform sampler2D tWarp; // Verschiebung Quelle - Ziel, aus inverseMap()
+uniform int uWarpOn;
 void main() {
   vec2 q = vec2(vUv.x, 1.0 - vUv.y);
-  vec2 p = warpSource(q);
+  vec2 p = uWarpOn == 1 ? q + texture(tWarp, q).rg : q;
   if (any(lessThan(p, vec2(0.0))) || any(greaterThan(p, vec2(1.0)))) { outColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
   vec2 s = vec2(p.x, 1.0 - p.y);
   vec4 c = texture(tScene, s);
@@ -68,7 +70,7 @@ function rtFor(id, w, h) {
 /** Maske eines Projektors (Überblendung × eigene Masken) als Textur, nur bei Änderung neu. */
 function maskFor(p) {
   const img = st.blendImgs[p.id];
-  const key = `${img?.src?.length || 0}|${img?.complete}|${JSON.stringify(p.masks || [])}`;
+  const key = `${img?.src?.length || 0}|${img?.complete}|${p.masks ? keyOf(p.masks) : ''}`;
   let m = maskTex.get(p.id);
   if (m && m.key === key) return m.tex;
   if (!m) {
@@ -188,6 +190,8 @@ async function ensureModel(path) {
 function myProjectors() {
   if (!st.project) return [];
   const out = st.project.outputs.find((o) => o.id === outputId);
+  // Testausgang: nur der gewählte Projektor, im ganzen Bild
+  if (out?.solo) return st.project.projectors.filter((p) => p.id === st.activeId).map((p) => ({ p, rect: { x: 0, y: 0, w: 1, h: 1 } }));
   return st.project.projectors
     .filter((p) => p.output === outputId && p.enabled)
     .map((p) => ({ p, rect: quadrantRect(out, p.quadrant) }));
@@ -204,12 +208,69 @@ function draw(full = true) {
 
 // Leistung: Bilder pro Sekunde und Zeichenzeit, alle 2 s an das Hauptfenster
 const perf = { frames: 0, ms: 0, since: performance.now(), dropped0: 0 };
-const warpCache = new WeakMap();
-function warpUniforms(wp) {
-  let c = warpCache.get(wp);
-  if (!c) { c = { arr: warpUniformArray(wp), on: isIdentity(wp) ? 0 : 1 }; warpCache.set(wp, c); }
+const warpTex = new Map(); // projectorId -> { key, tex, on, fine }
+// Vergleichsschlüssel je Objekt nur einmal bilden: Projektdaten kommen pro Nachricht als neue Objekte,
+// zwischen zwei Nachrichten (z. B. bei jedem Videobild) bleibt es bei einem Nachschlagen.
+const keyCache = new WeakMap();
+function keyOf(obj) {
+  if (!obj) return '';
+  let k = keyCache.get(obj);
+  if (k === undefined) { k = JSON.stringify(obj); keyCache.set(obj, k); }
+  return k;
+}
+const WMAP_COARSE = [160, 90], WMAP_FINE = [480, 270];
+const warpWorker = new Worker(new URL('./warpWorker.js', import.meta.url), { type: 'module' });
+const warpBusy = new Map(); // projectorId -> { key, size } gerade in Arbeit
+const warpNext = new Map(); // projectorId -> nächster Auftrag, falls noch einer läuft
+const warpTimers = new Map();
+/**
+ * Umkehrtabelle der Feinkorrektur als Textur (RG, Half Float, linear gefiltert), nur bei Änderung neu
+ * und im Hintergrund-Thread. Während des Ziehens grob (schnell), kurz danach fein (Fehler unter 0,2 px).
+ * Bis die neue Tabelle da ist, bleibt die vorige sichtbar.
+ */
+function warpTextureFor(p) {
+  const wp = p.warp;
+  const key = keyOf(wp);
+  let c = warpTex.get(p.id);
+  if (c && c.key === key) return c;
+  if (c?.pending !== key) {
+    const on = !isIdentity(wp);
+    c = { ...(c || {}), pending: key, key: on ? c?.key : key, on: on ? !!c?.on : false };
+    warpTex.set(p.id, c);
+    if (on) {
+      requestWarp(p.id, key, wp, WMAP_COARSE);
+      clearTimeout(warpTimers.get(p.id));
+      warpTimers.set(p.id, setTimeout(() => { if (warpTex.get(p.id)?.pending === key) requestWarp(p.id, key, wp, WMAP_FINE); }, 300));
+    }
+  }
   return c;
 }
+function requestWarp(id, key, warp, [mw, mh]) {
+  const job = { id, key, warp, mw, mh };
+  if (warpBusy.get(id)) { warpNext.set(id, job); return; } // nur der neueste wartende Auftrag zählt
+  warpBusy.set(id, true);
+  warpWorker.postMessage(job);
+}
+warpWorker.onmessage = (e) => {
+  const { id, key, mw, mh, half } = e.data;
+  warpBusy.set(id, false);
+  const next = warpNext.get(id);
+  if (next) { warpNext.delete(id); requestWarp(next.id, next.key, next.warp, [next.mw, next.mh]); }
+  const c = warpTex.get(id);
+  if (!c || c.pending !== key) return; // veraltet
+  let tex = c.tex;
+  if (tex && (tex.image.width !== mw || tex.image.height !== mh)) { tex.dispose(); tex = null; }
+  if (!tex) {
+    tex = new THREE.DataTexture(half, mw, mh, THREE.RGFormat, THREE.HalfFloatType);
+    tex.magFilter = tex.minFilter = THREE.LinearFilter;
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.colorSpace = THREE.NoColorSpace;
+  } else tex.image.data = half;
+  tex.needsUpdate = true;
+  warpTex.set(id, { ...c, key, tex, on: true });
+  draw(false);
+};
+
 function reportPerf() {
   const now = performance.now(), dt = (now - perf.since) / 1000;
   if (dt < 2) return;
@@ -263,10 +324,9 @@ function drawFrame(full = true) {
       u.tScene.value = rt.texture;
       u.uMaskOn.value = showMask ? 1 : 0;
       if (showMask) u.tMask.value = maskFor(p);
-      const wp = p.warp;
-      const wu = wp ? warpUniforms(wp) : null;
-      u.uWarpOn.value = wu ? wu.on : 0;
-      if (wu) { u.uWarp.value = wu.arr; u.uWarpCols.value = wp.cols; u.uWarpRows.value = wp.rows; }
+      const wt = warpTextureFor(p);
+      u.uWarpOn.value = wt.on ? 1 : 0;
+      if (wt.on && wt.tex) u.tWarp.value = wt.tex; else u.uWarpOn.value = 0;
       renderer.setViewport(x / dpr, (Hc - y - h) / dpr, w / dpr, h / dpr);
       renderer.setScissor(x / dpr, (Hc - y - h) / dpr, w / dpr, h / dpr);
       renderer.setScissorTest(true);
@@ -298,9 +358,10 @@ function drawFrame(full = true) {
     if (active && st.warpEdit && p.warp) {
       drawWarpGrid(p.warp, w, h, dpr);
     } else if (active && st.markers) {
+      const wev = makeWarp(p.warp);
       for (const pt of p.points) {
         if (!pt.image) continue;
-        const [fu, fv] = forward(p.warp, pt.image[0] / p.resolution[0], pt.image[1] / p.resolution[1]);
+        const [fu, fv] = wev.forward(pt.image[0] / p.resolution[0], pt.image[1] / p.resolution[1]);
         const u = fu * w, v = fv * h;
         const isA = pt.id === st.activePointId;
         if (isA) {
@@ -333,35 +394,9 @@ function drawFrame(full = true) {
   }
 }
 
-/** Feinkorrektur-Gitter: verzerrte Linien und Anfasser, aktiver Anfasser blau. */
+/** Feinkorrektur: verzerrte Linien, Gitterpunkte und freie Punkte. */
 function drawWarpGrid(wp, w, h, dpr) {
-  const N = 24;
-  ov.lineWidth = 1.5 * dpr;
-  ov.strokeStyle = 'rgba(255,255,255,0.75)';
-  for (let r = 0; r < wp.rows; r++) {
-    ov.beginPath();
-    for (let k = 0; k <= N * (wp.cols - 1); k++) {
-      const [u, v] = forward(wp, k / (N * (wp.cols - 1)), r / (wp.rows - 1));
-      k ? ov.lineTo(u * w, v * h) : ov.moveTo(u * w, v * h);
-    }
-    ov.stroke();
-  }
-  for (let c = 0; c < wp.cols; c++) {
-    ov.beginPath();
-    for (let k = 0; k <= N * (wp.rows - 1); k++) {
-      const [u, v] = forward(wp, c / (wp.cols - 1), k / (N * (wp.rows - 1)));
-      k ? ov.lineTo(u * w, v * h) : ov.moveTo(u * w, v * h);
-    }
-    ov.stroke();
-  }
-  wp.offsets.forEach((o, i) => {
-    const [bu, bv] = gridBase(wp, i);
-    const x = (bu + o[0]) * w, y = (bv + o[1]) * h;
-    const on = i === st.activeHandle;
-    ov.beginPath(); ov.arc(x, y, (on ? 11 : 8) * dpr, 0, Math.PI * 2);
-    ov.fillStyle = on ? '#0a84ff' : 'rgba(0,0,0,0.6)'; ov.fill();
-    ov.lineWidth = 2.5 * dpr; ov.strokeStyle = '#fff'; ov.stroke();
-  });
+  drawWarpOverlay(ov, wp, w, h, 1.6 * dpr, { handle: st.activeHandle, pin: st.activePin });
 }
 
 // ---------------- Eingaben auf dem Projektor
@@ -413,6 +448,7 @@ api.onStateUpdate(async (msg) => {
     st.warpEdit = !!msg.warpEdit;
     st.markers = msg.markers ?? true;
     st.activeHandle = msg.activeHandle ?? null;
+    st.activePin = msg.activePin ?? null;
     await ensureModel(msg.modelPath);
     ensureVideo(st.project.view.outputMode === 'video' ? st.project.playback?.src : '');
     syncVideo();

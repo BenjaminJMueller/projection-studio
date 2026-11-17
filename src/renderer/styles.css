@@ -349,6 +349,8 @@ details.more > summary:hover { color: var(--text); }
 .status .head .ic-wrap { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--bg-select); color: var(--text-2); font-weight: 600; }
 .status.ok .head .ic-wrap { background: color-mix(in srgb, var(--ok) 20%, transparent); color: var(--ok); }
 .status.warn .head .ic-wrap { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); }
+.status.bad .head .ic-wrap { background: color-mix(in srgb, var(--bad, #ff5a52) 20%, transparent); color: var(--bad, #ff5a52); }
+.status.bad { margin-bottom: 8px; }
 .status .head b { display: block; font-size: 14px; font-weight: 600; line-height: 18px; }
 .status .head span { display: block; font-size: 12px; color: var(--text-2); line-height: 16px; }
 .steps { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-top: 12px; }

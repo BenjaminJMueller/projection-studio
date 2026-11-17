@@ -180,11 +180,37 @@ await win.evaluate(() => {
 });
 await win.waitForTimeout(800);
 await win.screenshot({ path: path.join(outDir, '09-feinkorrektur.png') });
+// Freier Punkt per Klick in die Vorschau setzen und ziehen, dann Bézier-Anfasser
+{
+  const box = await win.locator('#preview2d').boundingBox();
+  const x = box.x + box.width * 0.72, y = box.y + box.height * 0.35;
+  await win.mouse.move(x, y); await win.mouse.down();
+  await win.mouse.move(x + 14, y + 6, { steps: 4 }); await win.mouse.up();
+  const pins = await win.evaluate(() => window.__app.S.project.projectors[0].warp.pins.length);
+  if (pins !== 1) errors.push(`error: freier Punkt nicht gesetzt (${pins})`);
+  await win.evaluate(() => { const { S, refresh } = window.__app; const w = S.project.projectors[0].warp; w.bezier = true; S.activePin = null; S.activeHandle = 12; refresh(); });
+  await win.waitForTimeout(500);
+  await win.screenshot({ path: path.join(outDir, '09a-feinkorrektur-punkte.png') });
+  await win.evaluate(() => { const w = window.__app.S.project.projectors[0].warp; w.bezier = false; });
+}
 await outWin.screenshot({ path: path.join(outDir, '09b-ausgang-A-feinkorrektur.png') });
 await win.click('#modes button[data-mode=output]');
 await outWin.waitForTimeout(800);
 const after = await outWin.screenshot({ path: path.join(outDir, '09c-ausgang-A-verzerrt.png') });
 if (Buffer.compare(before, after) === 0) errors.push('error: Feinkorrektur wirkt nicht auf die Ausgabe');
+// Testausgang auf denselben Bildschirm wie HDMI A legen: die beiden tauschen
+{
+  const r = await win.evaluate(async () => {
+    const { S } = window.__app;
+    const d = S.project.outputs[0].displayId;
+    await window.__app.assignDisplay(S.project.outputs.find((o) => o.solo), d);
+    return S.project.outputs.map((o) => [o.id, o.displayId]);
+  });
+  if (!(r.find((x) => x[0] === 'T')[1] != null && r.find((x) => x[0] === 'A')[1] == null)) errors.push('error: Bildschirmtausch ' + JSON.stringify(r));
+  await win.waitForTimeout(1500);
+  const solo = app.windows().find((w) => w !== win && !w.isClosed());
+  if (solo) await solo.screenshot({ path: path.join(outDir, '10-testausgang.png') });
+}
 await win.evaluate(() => window.__app.toggleOutputs(false));
 
 const sol = await win.evaluate(() => window.__app.S.project.projectors.slice(0, 4).map((p) => ({ id: p.id, rms: p.solution.rms, center: p.solution.center, quality: window.__app.S.results[p.id]?.quality })));

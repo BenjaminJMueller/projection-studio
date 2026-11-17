@@ -10,6 +10,7 @@ const on = (channel) => (cb) => {
 contextBridge.exposeInMainWorld('api', {
   platform: process.platform,
   listDisplays: () => ipcRenderer.invoke('displays:list'),
+  moveCursor: (x, y) => ipcRenderer.invoke('cursor:move', { x, y }),
   openOutput: (displayId, outputName) => ipcRenderer.invoke('output:open', { displayId, outputName }),
   closeOutput: (displayId) => ipcRenderer.invoke('output:close', { displayId }),
   closeAllOutputs: () => ipcRenderer.invoke('output:closeAll'),

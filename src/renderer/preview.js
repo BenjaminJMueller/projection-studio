@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { applySolutionToCamera } from '../shared/scene.js';
 import { drawMaskShapes } from '../shared/masks.js';
-import { forward, gridBase } from '../shared/warp.js';
+import { drawWarpOverlay } from '../shared/warpdraw.js';
 
 export class Preview {
   constructor(canvas3d, canvas2d, handlers) {
@@ -97,19 +97,7 @@ export class Preview {
     }
     // Feinkorrektur-Gitter
     if (this.mode === 'warp' && p.warp) {
-      const w = p.warp, N = 16;
-      g.lineWidth = 1.2 * px;
-      g.strokeStyle = 'rgba(255,255,255,.7)';
-      const line = (fn, n) => { g.beginPath(); for (let k = 0; k <= n; k++) { const [u, v] = fn(k / n); k ? g.lineTo(u * this.W, v * this.H) : g.moveTo(u * this.W, v * this.H); } g.stroke(); };
-      for (let r = 0; r < w.rows; r++) line((t) => forward(w, t, r / (w.rows - 1)), N * (w.cols - 1));
-      for (let c = 0; c < w.cols; c++) line((t) => forward(w, c / (w.cols - 1), t), N * (w.rows - 1));
-      w.offsets.forEach((o, i) => {
-        const [bu, bv] = gridBase(w, i);
-        const x = (bu + o[0]) * this.W, y = (bv + o[1]) * this.H, on = i === this.extras.activeHandle;
-        g.beginPath(); g.arc(x, y, (on ? 7 : 5) * px, 0, Math.PI * 2);
-        g.fillStyle = on ? '#0a84ff' : 'rgba(30,30,34,.9)'; g.fill();
-        g.lineWidth = 1.5 * px; g.strokeStyle = '#fff'; g.stroke();
-      });
+      drawWarpOverlay(g, p.warp, this.W, this.H, px, { handle: this.extras.activeHandle, pin: this.extras.activePin });
       g.strokeStyle = p.color; g.lineWidth = 2 * px;
       g.strokeRect(0, 0, this.W, this.H);
       return;

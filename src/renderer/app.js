@@ -1,6 +1,6 @@
 // Hauptfenster: Zustand, Bedienlogik, Solver-Anbindung, Export.
 import { buildModel } from '../shared/scene.js';
-import { newProject, migrateProject, QUADRANT_NAMES } from '../shared/project.js';
+import { newProject, migrateProject, QUADRANT_NAMES, LAYOUTS, layoutOf, cellCount, cellName, arrangeOutput, quadrantRect } from '../shared/project.js';
 import { LENS_PRESETS, getLensPreset } from '../core/lenses.js';
 import { projectPoint, suggestNextImageRegion } from '../core/solver.js';
 import { exportProjector } from '../core/export.js';
@@ -10,7 +10,8 @@ import { computeBlendMasks } from './blend.js';
 import { makeBrowserStub } from './stub.js';
 import { icon, hydrateIcons } from './icons.js';
 import { fileUrl, targetTime, playState } from '../shared/playback.js';
-import { defaultWarp, resizeWarp, isIdentity, inverse, gridBase, touchDesignerShader } from '../shared/warp.js';
+import { defaultWarp, resizeWarp, isIdentity, inverse, gridBase, touchDesignerShader, makeWarp, GRID_SIZES, minJacobian, setBezierHandle } from '../shared/warp.js';
+import { visibleBezierHandles } from '../shared/warpdraw.js';
 
 const api = window.api || makeBrowserStub();
 const $ = (s) => document.querySelector(s);
@@ -48,6 +49,7 @@ const S = {
   calTab: 'points', // 'points' | 'warp'
   outStats: {},
   activeHandle: null,
+  activePin: null,
 };
 const undoStack = [], redoStack = [];
 
@@ -226,6 +228,7 @@ function selectProjector(id) {
   S.pendingRepick = false;
   S.activeMaskId = null;
   refresh();
+  mouseToProjector();
 }
 
 // ------------------------------------------------------------------ Masken-Editor
@@ -313,7 +316,7 @@ function refresh(light = false) {
     renderDocState();
     view.update(S.project, S.activeId, S.activePointId, S.pendingRepick, showSuggest() ? S.results[S.activeId]?.candidates : null);
     preview.mode = previewMode();
-    preview.set(active(), S.activePointId, { activeHandle: S.activeHandle, suggest: showSuggest() ? S.results[S.activeId]?.suggest : null, activeMaskId: S.activeMaskId, blendImg: blendImgFor(S.activeId) });
+    preview.set(active(), S.activePointId, { activeHandle: S.activeHandle, activePin: S.activePin, suggest: showSuggest() ? S.results[S.activeId]?.suggest : null, activeMaskId: S.activeMaskId, blendImg: blendImgFor(S.activeId) });
     $('#previewCaption').replaceChildren(el('span', {}, el('b', {}, displayName(active())), outputLabel(active())), el('span', {}, `${active().resolution[0]} × ${active().resolution[1]}`));
     $('#btnUndo').disabled = !undoStack.length;
     $('#btnRedo').disabled = !redoStack.length;
@@ -346,7 +349,7 @@ const isGood = (q) => q === 'sehr gut' || q === 'gut';
 function outputLabel(p) {
   const o = S.project.outputs.find((x) => x.id === p.output);
   if (!o) return 'Kein Ausgang';
-  return o.layout === '2x2' ? `${o.name} · ${QUAD_SHORT[p.quadrant]}` : o.layout === '1x2' ? `${o.name} · ${p.quadrant % 2 ? 'rechts' : 'links'}` : o.name;
+  return cellCount(o) > 1 ? `${o.name} · ${cellName(o, p.quadrant % cellCount(o))}` : o.name;
 }
 
 // kleine Bausteine
@@ -443,34 +446,100 @@ function renderDocState() {
 
 // ---------- 1 Einrichten
 function quadDiagram(o) {
+  if (o.solo) {
+    const p = active();
+    return el('div', { class: 'quad', style: 'grid-template-columns:1fr' }, el('span', { style: `background:${p.color}` }, String(indexOf(p) + 1)));
+  }
+  const { rows, cols } = layoutOf(o);
   const ps = S.project.projectors.filter((p) => p.output === o.id);
-  const n = o.layout === '2x2' ? 4 : o.layout === '1x2' ? 2 : 1;
+  const n = rows * cols;
   const cells = Array.from({ length: n }, (_, q) => {
     const p = ps.find((x) => (n === 1 ? true : x.quadrant % n === q));
     return el('span', { style: p ? `background:${p.color}` : 'background:var(--bg-select)' }, p ? String(indexOf(p) + 1) : '');
   });
-  return el('div', { class: `quad l${o.layout}` }, ...cells);
+  return el('div', { class: 'quad', style: `grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rows},1fr)` }, ...cells);
+}
+
+/** Merkmal eines Bildschirms, das auch nach Neustart oder Umstecken gleich bleibt. */
+const displayKey = (d) => d && `${d.label}|${d.pixelSize.width}x${d.pixelSize.height}`;
+
+/** Bildschirm für einen Ausgang setzen. Hat ihn schon ein anderer Ausgang, werden die beiden getauscht. */
+async function assignDisplay(o, displayId) {
+  const old = o.displayId;
+  const other = displayId != null ? S.project.outputs.find((x) => x !== o && x.displayId === displayId) : null;
+  const wasOpen = S.openOutputs.size > 0;
+  if (wasOpen) {
+    if (old != null) await api.closeOutput(old);
+    if (other && displayId != null) await api.closeOutput(displayId);
+  }
+  o.displayId = displayId;
+  o.displayKey = displayKey(S.displays.find((d) => d.id === displayId)) || null;
+  if (other) { other.displayId = old; other.displayKey = displayKey(S.displays.find((d) => d.id === old)) || null; }
+  if (wasOpen) {
+    if (o.displayId != null) await api.openOutput(o.displayId, o.id);
+    if (other?.displayId != null) await api.openOutput(other.displayId, other.id);
+    await syncOpenOutputs();
+  }
+  if (other) toast(`${o.name} und ${other.name} haben die Bildschirme getauscht.`);
+  markDirty();
+  refresh();
+}
+
+/** Nach dem An- oder Abstecken: Ausgänge über ihr Merkmal wiederfinden, fehlende schließen, zurückgekehrte öffnen. */
+async function displaysChanged() {
+  S.displays = await api.listDisplays();
+  for (const o of S.project.outputs) {
+    if (o.displayId != null && S.displays.some((d) => d.id === o.displayId)) continue;
+    const again = o.displayKey && S.displays.find((d) => displayKey(d) === o.displayKey && !S.project.outputs.some((x) => x !== o && x.displayId === d.id));
+    if (o.displayId != null && S.openOutputs.has(o.displayId)) await api.closeOutput(o.displayId);
+    if (again) o.displayId = again.id;
+  }
+  if (S.outputsWanted) {
+    for (const o of S.project.outputs) {
+      if (o.displayId != null && S.displays.some((d) => d.id === o.displayId)) await api.openOutput(o.displayId, o.id);
+    }
+  }
+  await syncOpenOutputs();
+  refresh();
+}
+
+/** Maus auf die Mitte des gewählten Projektors setzen (Testausgang bevorzugt). */
+function mouseToProjector() {
+  if (!S.project.view.mouseFollow || !S.openOutputs.size) return;
+  const p = active();
+  const solo = S.project.outputs.find((o) => o.solo && o.displayId != null && S.openOutputs.has(o.displayId));
+  const o = solo || S.project.outputs.find((x) => x.id === p.output && x.displayId != null && S.openOutputs.has(x.displayId));
+  const d = o && S.displays.find((x) => x.id === o.displayId);
+  if (!d) return;
+  const rc = quadrantRect(o, p.quadrant);
+  api.moveCursor(Math.round(d.bounds.x + (rc.x + rc.w / 2) * d.bounds.width), Math.round(d.bounds.y + (rc.y + rc.h / 2) * d.bounds.height));
 }
 
 function outputRows() {
   const opts = [['', 'Kein Bildschirm'], ...S.displays.map((d) => [d.id, `${d.label} · ${d.pixelSize.width} × ${d.pixelSize.height}`])];
   return S.project.outputs.map((o) => {
     const ps = S.project.projectors.filter((p) => p.output === o.id).map((p) => indexOf(p) + 1);
+    const d = S.displays.find((x) => x.id === o.displayId);
+    const L = layoutOf(o);
+    // passt die Auflösung zur Aufteilung? (je Feld eine Projektorauflösung)
+    const first = S.project.projectors.find((p) => p.output === o.id);
+    const want = !o.solo && first ? [L.cols * first.resolution[0], L.rows * first.resolution[1]] : null;
+    const mismatch = d && want && (d.pixelSize.width !== want[0] || d.pixelSize.height !== want[1]);
+    const sub = o.solo ? 'zeigt den gewählten Projektor allein' : ps.length ? `Projektor ${ps[0]} bis ${ps[ps.length - 1]}` : 'nicht belegt';
     return el('div', { class: 'r stack' },
-      el('div', { class: 'lbl', style: 'gap:10px' }, quadDiagram(o), el('span', {}, o.name, el('span', { class: 'sub' }, ps.length ? `Projektor ${ps[0]} bis ${ps[ps.length - 1]}` : 'nicht belegt'))),
+      el('div', { class: 'lbl', style: 'gap:10px' }, quadDiagram(o),
+        el('span', {}, o.name, el('span', { class: 'sub' }, sub),
+          mismatch ? el('span', { class: 'sub', style: 'color:var(--warn)' }, `Bildschirm hat ${d.pixelSize.width} × ${d.pixelSize.height}, erwartet ${want[0]} × ${want[1]}`) : null),
+        o.solo ? infoBtn('Zum Kalibrieren einen Projektor direkt anschließen, ohne Video-Wall-Controller. Dieser Ausgang zeigt immer den Projektor, der gerade links gewählt ist, im ganzen Bild.') : null),
       el('div', { class: 'ctl' },
-        select(opts, o.displayId ?? '', async (v) => {
-          const old = o.displayId;
-          o.displayId = v ? Number(v) : null;
-          markDirty();
-          if (S.openOutputs.size) {
-            if (old != null) await api.closeOutput(old);
-            if (o.displayId != null) await api.openOutput(o.displayId, o.id);
-            await syncOpenOutputs();
-          }
-          refresh();
-        }, { 'aria-label': `Bildschirm für ${o.name}` }),
-        select([['2x2', '2 × 2'], ['1x2', '1 × 2'], ['1x1', 'Ganz']], o.layout, (v) => { o.layout = v; markDirty(); refresh(); }, { style: 'width:76px;flex:none', 'aria-label': 'Aufteilung', 'data-tip': 'Aufteilung des Bildschirms auf Projektoren' })));
+        select(opts, o.displayId ?? '', (v) => assignDisplay(o, v ? Number(v) : null), { 'aria-label': `Bildschirm für ${o.name}` }),
+        o.solo ? null : select(Object.entries(LAYOUTS).map(([k, x]) => [k, x.label]), o.layout, (v) => {
+          pushUndo();
+          o.layout = v;
+          const over = arrangeOutput(S.project, o.id);
+          markDirty(); refresh();
+          toast(over ? `${LAYOUTS[v].label}: nur ${cellCount(o)} Felder für ${ps.length} Projektoren. Überzählige teilen sich ein Feld.` : `${o.name}: Projektoren auf ${LAYOUTS[v].label} verteilt.`);
+        }, { style: 'width:132px;flex:none', 'aria-label': 'Aufteilung', 'data-tip': 'Modus des Video-Wall-Controllers, z. B. 2 × 2 beim LogiLink HD0054. Die Projektoren werden der Reihe nach auf die Felder verteilt.' })));
   });
 }
 
@@ -491,13 +560,15 @@ function renderSetup() {
     gtitle('3D-Modell'),
     group(modelRow()),
     gtitle('Bildschirme', infoBtn('Jeder Ausgang der Grafikkarte wird in Viertel geteilt, jedes Viertel geht an einen Projektor.')),
-    group(outputRows()),
+    group(...outputRows(),
+      r('Maus springt mit', switchCtl(!!S.project.view.mouseFollow, (v) => { S.project.view.mouseFollow = v; markDirty(); refresh(); if (v) mouseToProjector(); }),
+        { tip: 'Beim Wechsel des Projektors springt der Mauszeiger auf dessen Bild am Ausgang. So muss man die Maus auf den Projektionen nicht suchen.' })),
     gtitle(displayName(p)),
     group(
       r('Name', input(displayName(p), (v) => set(() => { p.name = v.trim() || `P${indexOf(p) + 1}`; }))),
       r('Verwenden', switchCtl(p.enabled, (v) => set(() => { p.enabled = v; }))),
-      r('Ausgang', select([...S.project.outputs.map((x) => [x.id, x.name]), ['', 'Keiner']], p.output, (v) => set(() => { p.output = v; }))),
-      o && o.layout !== '1x1' ? r('Bildbereich', select((o.layout === '2x2' ? QUAD_SHORT : ['links', 'rechts']).map((n, i) => [i, n]), p.quadrant, (v) => set(() => { p.quadrant = Number(v); }))) : null,
+      r('Ausgang', select([...S.project.outputs.filter((x) => !x.solo).map((x) => [x.id, x.name]), ['', 'Keiner']], p.output, (v) => set(() => { p.output = v; }))),
+      o && cellCount(o) > 1 ? r('Bildbereich', select(Array.from({ length: cellCount(o) }, (_, i) => [i, cellName(o, i)]), p.quadrant % cellCount(o), (v) => set(() => { p.quadrant = Number(v); }))) : null,
       r('Auflösung', select([['1920x1080', '1920 × 1080'], ['1280x800', '1280 × 800'], ['1280x720', '1280 × 720'], ['3840x2160', '3840 × 2160']], p.resolution.join('x'), (v) => {
         pushUndo();
         const [w, h] = v.split('x').map(Number);
@@ -562,7 +633,7 @@ function renderCalibrate() {
       el('input', { type: 'checkbox', 'aria-label': 'Punkt verwenden', 'data-tip': 'Punkt verwenden', checked: pt.enabled, onclick: (ev) => ev.stopPropagation(), onchange: (ev) => { pushUndo(); pt.enabled = ev.target.checked; scheduleSolve(p); markDirty(); refresh(); } }));
   });
   const tabs = el('div', { class: 'seg fill', role: 'tablist', style: 'margin:4px 0 8px' },
-    ...[['points', 'Punkte'], ['warp', 'Feinkorrektur']].map(([k, l]) => el('button', { class: S.calTab === k ? 'on' : '', role: 'tab', 'data-cal': k, onclick: () => { S.calTab = k; if (k === 'warp') { p.warp ||= defaultWarp(5, 5); } refresh(); } }, l)));
+    ...[['points', 'Punkte'], ['warp', 'Feinkorrektur']].map(([k, l]) => el('button', { class: S.calTab === k ? 'on' : '', role: 'tab', 'data-cal': k, onclick: () => { S.calTab = k; if (k === 'warp') ensureWarp(p); refresh(); } }, l)));
   if (S.calTab === 'warp') return put('#paneCalibrate', tabs, warpPane(p));
   put('#paneCalibrate', tabs,
     statusCard(p),
@@ -592,52 +663,139 @@ function renderCalibrate() {
 // ---------- Feinkorrektur (Verzerrungsgitter)
 const warpEditing = () => S.mode === 'calibrate' && S.calTab === 'warp';
 
+function ensureWarp(p) {
+  p.warp ||= defaultWarp(5, 5, p.resolution[0] / p.resolution[1]);
+  p.warp.pins ||= [];
+  p.warp.radius ??= 0.25;
+  p.warp.aspect ??= p.resolution[0] / p.resolution[1];
+  return p.warp;
+}
+const selectWarp = (handle, pin) => { S.activeHandle = handle; S.activePin = pin; };
+
+/** Gitterpunkt i so verschieben, dass er sichtbar bei (tu, tv) liegt (freie Punkte wirken mit). */
+function placeHandle(w, i, tu, tv) {
+  const [bu, bv] = gridBase(w, i);
+  for (let k = 0; k < 3; k++) {
+    const [fu, fv] = makeWarp(w).forward(bu, bv);
+    w.offsets[i] = [w.offsets[i][0] + tu - fu, w.offsets[i][1] + tv - fv];
+  }
+}
+
 function onWarpPointer(uv, phase) {
   const p = active();
-  p.warp ||= defaultWarp(5, 5);
-  const w = p.warp;
+  const w = ensureWarp(p);
   const [W, H] = p.resolution;
   const nu = uv[0] / W, nv = uv[1] / H;
   if (phase === 'down') {
-    let best = null, bd = 0.04;
-    w.offsets.forEach((o, i) => {
-      const [bu, bv] = gridBase(w, i);
-      const d = Math.hypot((bu + o[0] - nu) * W / H, bv + o[1] - nv);
-      if (d < bd) { bd = d; best = i; }
-    });
-    S.activeHandle = best;
-    S.warpDrag = best != null ? (() => { const [bu, bv] = gridBase(w, best); const o = w.offsets[best]; return { grab: [bu + o[0] - nu, bv + o[1] - nv] }; })() : null;
-    if (best != null) pushUndo();
+    const ev = makeWarp(w);
+    const reach = Math.min(0.035, 0.45 / (Math.max(w.cols, w.rows) - 1));
+    const dist = (u, v) => Math.hypot((u - nu) * W / H, v - nv);
+    let hit = null, bd = reach;
+    if (w.bezier && S.activeHandle != null && w.offsets[S.activeHandle]) {
+      const h = visibleBezierHandles(w, S.activeHandle, ev);
+      for (const k of ['right', 'left', 'down', 'up']) { const d = dist(h[k][0], h[k][1]); if (d < bd) { bd = d; hit = { kind: 'tan', i: S.activeHandle, which: k, pos: h[k], shift: [h.node[0] - w.offsets[S.activeHandle][0] - gridBase(w, S.activeHandle)[0], h.node[1] - w.offsets[S.activeHandle][1] - gridBase(w, S.activeHandle)[1]] }; } }
+    }
+    if (!hit) w.pins.forEach((pin, i) => { const d = dist(pin.at[0] + pin.off[0], pin.at[1] + pin.off[1]); if (d < bd) { bd = d; hit = { kind: 'pin', i, pos: [pin.at[0] + pin.off[0], pin.at[1] + pin.off[1]] }; } });
+    if (!hit) {
+      w.offsets.forEach((_, i) => { const [bu, bv] = gridBase(w, i); const f = ev.forward(bu, bv); const d = dist(f[0], f[1]); if (d < bd) { bd = d; hit = { kind: 'grid', i, pos: f }; } });
+    }
+    pushUndo();
+    if (!hit) {
+      // freier Punkt: hält den Bildinhalt an dieser Stelle fest, bis er gezogen wird
+      if (w.pins.length >= 200) { toast('Höchstens 200 freie Punkte.'); return; }
+      const at = ev.inverse(nu, nv);
+      w.pins.push({ at, off: [nu - at[0], nv - at[1]] });
+      hit = { kind: 'pin', i: w.pins.length - 1, pos: [nu, nv] };
+      markDirty();
+    }
+    if (hit.kind === 'pin') selectWarp(null, hit.i); else selectWarp(hit.i, null);
+    S.warpDrag = { kind: hit.kind, i: hit.i, which: hit.which, shift: hit.shift, grab: [hit.pos[0] - nu, hit.pos[1] - nv] };
     return refresh(true);
   }
-  if (S.warpDrag && S.activeHandle != null && (phase === 'move' || phase === 'up')) {
-    const [bu, bv] = gridBase(w, S.activeHandle);
-    w.offsets[S.activeHandle] = [nu + S.warpDrag.grab[0] - bu, nv + S.warpDrag.grab[1] - bv];
+  const d = S.warpDrag;
+  if (d && (phase === 'move' || phase === 'up')) {
+    const tu = nu + d.grab[0], tv = nv + d.grab[1];
+    if (d.kind === 'pin') { const pin = w.pins[d.i]; pin.off = [tu - pin.at[0], tv - pin.at[1]]; }
+    else if (d.kind === 'tan') setBezierHandle(w, d.i, d.which, tu - d.shift[0], tv - d.shift[1]);
+    else placeHandle(w, d.i, tu, tv);
     if (phase === 'up') { S.warpDrag = null; markDirty(); }
     refresh(true);
   }
 }
 
-function warpPane(p) {
+function moveWarpSelection(p, dx, dy) {
+  const w = ensureWarp(p);
+  if (S.activePin != null && w.pins[S.activePin]) { const o = w.pins[S.activePin].off; o[0] += dx; o[1] += dy; return true; }
+  if (S.activeHandle != null) {
+    const [bu, bv] = gridBase(w, S.activeHandle);
+    const [fu, fv] = makeWarp(w).forward(bu, bv);
+    placeHandle(w, S.activeHandle, fu + dx, fv + dy);
+    return true;
+  }
+  return false;
+}
+
+function removeActivePin(p) {
   const w = p.warp;
-  const n = w ? `${w.cols} × ${w.rows}` : '5 × 5';
-  const o = w && S.activeHandle != null ? w.offsets[S.activeHandle] : null;
-  const changed = w ? w.offsets.filter(([a, b]) => Math.hypot(a, b) > 1e-6).length : 0;
+  if (!w || S.activePin == null || !w.pins[S.activePin]) return false;
+  pushUndo();
+  w.pins.splice(S.activePin, 1);
+  selectWarp(null, null);
+  markDirty(); refresh();
+  return true;
+}
+
+function warpPane(p) {
+  const w = ensureWarp(p);
+  const [W, H] = p.resolution;
+  const ev = makeWarp(w);
+  const gridChanged = w.offsets.filter(([a, b]) => Math.hypot(a, b) > 1e-6).length;
+  const pinCount = w.pins.length;
+  let selText = 'keiner';
+  if (S.activePin != null && w.pins[S.activePin]) { const o = w.pins[S.activePin].off; selText = `Freier Punkt · ${nf(o[0] * W, 1)} / ${nf(o[1] * H, 1)} px`; }
+  else if (S.activeHandle != null && w.offsets[S.activeHandle]) {
+    const [bu, bv] = gridBase(w, S.activeHandle); const [fu, fv] = ev.forward(bu, bv);
+    selText = `Gitter · ${nf((fu - bu) * W, 1)} / ${nf((fv - bv) * H, 1)} px`;
+  }
+  const sizes = GRID_SIZES.map((n) => [String(n), String(n)]);
+  const resize = (c, r) => { pushUndo(); p.warp = resizeWarp(w, c, r); selectWarp(null, null); markDirty(); refresh(); };
+  const head = !gridChanged && !pinCount ? 'Keine Feinkorrektur'
+    : [gridChanged ? `${gridChanged} ${gridChanged === 1 ? 'Gitterpunkt' : 'Gitterpunkte'}` : null, pinCount ? `${pinCount} ${pinCount === 1 ? 'freier Punkt' : 'freie Punkte'}` : null].filter(Boolean).join(', ');
+  const folds = (gridChanged || pinCount) && minJacobian(w) < 0.05;
   return [
-    el('div', { class: `status ${changed ? 'ok' : ''}` },
+    folds ? el('div', { class: 'status bad' }, el('div', { class: 'head' }, el('div', { class: 'ic-wrap', html: icon('alert', 16) }),
+      el('div', {}, el('b', {}, 'Das Bild faltet sich'), el('span', {}, 'An einer Stelle ist die Korrektur so stark, dass sich das Bild überschlägt. Den Punkt etwas zurücknehmen oder die Reichweite vergrößern.')))) : null,
+    el('div', { class: `status ${gridChanged || pinCount ? 'ok' : ''}` },
       el('div', { class: 'head' }, el('div', { class: 'ic-wrap', html: icon('target', 16) }),
-        el('div', {}, el('b', {}, changed ? `${changed} ${changed === 1 ? 'Punkt' : 'Punkte'} korrigiert` : 'Keine Feinkorrektur'),
-          el('span', {}, 'Punkte im Projektorbild oben oder direkt auf dem Projektor ziehen. Pfeiltasten: 1 Pixel, mit ⇧ 10 Pixel.')))),
+        el('div', {}, el('b', {}, head),
+          el('span', {}, 'Gitterpunkte ziehen oder irgendwo ins Bild klicken, um einen freien Punkt zu setzen. Pfeiltasten: 1 Pixel, mit ⇧ 10 Pixel. Entf löscht den freien Punkt.')))),
     gtitle('Gitter'),
     group(
-      r('Punkte', select([['3', '3 × 3'], ['5', '5 × 5'], ['7', '7 × 7'], ['9', '9 × 9']], String(w?.cols || 5), (v) => { pushUndo(); p.warp = resizeWarp(p.warp, Number(v), Number(v)); S.activeHandle = null; markDirty(); refresh(); }),
-        { tip: 'Mehr Punkte erlauben feinere, örtlich begrenzte Korrekturen. Beim Wechsel bleibt die Form erhalten.' }),
-      r('Gewählter Punkt', el('span', { class: 'muted' }, o ? `${nf(o[0] * p.resolution[0], 1)} / ${nf(o[1] * p.resolution[1], 1)} px` : 'keiner')),
+      r('Spalten × Zeilen', el('div', { style: 'display:flex;gap:6px;align-items:center' },
+        select(sizes, String(w.cols), (v) => resize(Number(v), w.rows), { style: 'width:64px', 'aria-label': 'Spalten' }),
+        el('span', { class: 'muted' }, '×'),
+        select(sizes, String(w.rows), (v) => resize(w.cols, Number(v)), { style: 'width:64px', 'aria-label': 'Zeilen' })),
+        { tip: 'Mehr Punkte erlauben feinere, örtlich begrenzte Korrekturen. Beim Wechsel bleibt die Form erhalten. 2 × 2 verschiebt nur die Ecken.' }),
+      r('Bézier-Anfasser', switchCtl(!!w.bezier, (v) => { pushUndo(); w.bezier = v; markDirty(); refresh(); }),
+        { tip: 'Zeigt am gewählten Gitterpunkt Anfasser, mit denen sich die Linien zwischen den Punkten biegen lassen. Ausgeschaltet verlaufen sie automatisch weich.' }),
+      w.bezier && S.activeHandle != null ? el('div', { class: 'act', style: 'padding:6px 12px' },
+        el('button', { class: 'link', onclick: () => { pushUndo(); if (w.tangents?.[S.activeHandle]) w.tangents[S.activeHandle] = [0, 0, 0, 0]; markDirty(); refresh(); } }, 'Anfasser zurücksetzen')) : null,
+    ),
+    gtitle('Freie Punkte'),
+    group(
+      r('Gesetzt', el('span', { class: 'muted' }, pinCount ? String(pinCount) : 'keine')),
+      r('Reichweite', rangeCtl(Math.round(w.radius * 100), 5, 80, 1, (v) => `${v} %`, null, (v) => { pushUndo(); w.radius = v / 100; markDirty(); refresh(); }),
+        { tip: 'Wie weit ein freier Punkt das Bild um sich herum mitzieht, in Prozent der Bildhöhe. Kleiner Wert: sehr örtlich.' }),
+    ),
+    group(
+      r('Ausgewählt', el('span', { class: 'muted' }, selText)),
       r('Testbild', el('button', { class: 'btn', onclick: () => { S.project.view.outputMode = 'grid'; markDirty(); if (!S.openOutputs.size) toggleOutputs(true); refresh(); } }, 'Raster auf Projektoren')),
     ),
     el('div', { class: 'act' },
-      el('button', { class: 'link danger', disabled: !o, onclick: () => { pushUndo(); p.warp.offsets[S.activeHandle] = [0, 0]; markDirty(); refresh(); } }, 'Punkt zurücksetzen'),
-      el('button', { class: 'link danger', disabled: !changed, onclick: () => { pushUndo(); p.warp = defaultWarp(w.cols, w.rows); markDirty(); refresh(); toast('Feinkorrektur zurückgesetzt. Mit Strg/Cmd+Z rückgängig.'); } }, 'Alles zurücksetzen')),
+      S.activePin != null
+        ? el('button', { class: 'link danger', onclick: () => removeActivePin(p) }, 'Punkt entfernen')
+        : el('button', { class: 'link danger', disabled: S.activeHandle == null, onclick: () => { pushUndo(); w.offsets[S.activeHandle] = [0, 0]; markDirty(); refresh(); } }, 'Punkt zurücksetzen'),
+      el('button', { class: 'link danger', disabled: !gridChanged && !pinCount, onclick: () => { pushUndo(); p.warp = defaultWarp(w.cols, w.rows, w.aspect); selectWarp(null, null); markDirty(); refresh(); toast('Feinkorrektur zurückgesetzt. Mit Strg/Cmd+Z rückgängig.'); } }, 'Alles zurücksetzen')),
   ];
 }
 
@@ -868,6 +1026,7 @@ function broadcast() {
       warpEdit: warpEditing(),
       markers: S.mode === 'calibrate',
       activeHandle: S.activeHandle,
+      activePin: S.activePin,
       modelPath: S.project.model.path,
     });
   });
@@ -885,6 +1044,7 @@ async function syncOpenOutputs() {
 
 async function toggleOutputs(force) {
   const open = force ?? !S.openOutputs.size;
+  S.outputsWanted = open;
   if (!open) {
     await api.closeAllOutputs();
     S.openOutputs.clear();
@@ -930,7 +1090,7 @@ api.onOutputEvent((msg) => {
   }
 });
 api.onOutputClosed(async () => { await syncOpenOutputs(); refresh(); });
-api.onDisplaysChanged(async () => { S.displays = await api.listDisplays(); refresh(); });
+api.onDisplaysChanged(() => displaysChanged());
 
 // ------------------------------------------------------------------ Tastatur
 function handleKey(e) {
@@ -940,14 +1100,15 @@ function handleKey(e) {
   const mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
   if (warpEditing() && p.warp) {
     const n = p.warp.offsets.length;
-    if (mv && S.activeHandle != null) {
+    if (mv && (S.activeHandle != null || S.activePin != null)) {
       if (!e.repeat) pushUndo();
-      const o = p.warp.offsets[S.activeHandle];
-      o[0] += mv[0] / p.resolution[0]; o[1] += mv[1] / p.resolution[1];
+      moveWarpSelection(p, mv[0] / p.resolution[0], mv[1] / p.resolution[1]);
       markDirty(); refresh(true);
       return true;
     }
-    if (e.key === 'Tab') { S.activeHandle = ((S.activeHandle ?? -1) + (e.shiftKey ? -1 : 1) + n) % n; refresh(true); return true; }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && removeActivePin(p)) return true;
+    if (e.key === 'Escape' && (S.activeHandle != null || S.activePin != null)) { selectWarp(null, null); refresh(true); return true; }
+    if (e.key === 'Tab') { selectWarp(((S.activeHandle ?? -1) + (e.shiftKey ? -1 : 1) + n) % n, null); refresh(true); return true; }
   }
   if (mv && pt?.image) {
     if (!e.repeat) pushUndo();
@@ -1369,10 +1530,12 @@ api.onMenu((cmd) => ({
   // Beim allerersten Start entscheidet die Einführung, ob mit der Demo begonnen wird.
   if (!restored && onboardingSeen()) await loadDemo();
   S.project.outputs.forEach((o, i) => {
-    if (o.displayId == null || !S.displays.some((d) => d.id === o.displayId)) o.displayId = ext[i]?.id ?? null;
+    if (o.displayId != null && S.displays.some((d) => d.id === o.displayId)) return;
+    const byKey = o.displayKey && S.displays.find((d) => displayKey(d) === o.displayKey);
+    o.displayId = byKey ? byKey.id : o.solo ? null : ext[i]?.id ?? null;
   });
   await syncOpenOutputs();
   refresh();
   if (!onboardingSeen()) showOnboarding(0);
-  window.__app = { S, view, refresh, setVideo, setPlay, scheduleSolve, selectPoint, computeBlend, toggleOutputs, setMode, showOnboarding, closeOnboarding, ready: true };
+  window.__app = { S, view, refresh, assignDisplay, setVideo, setPlay, scheduleSolve, selectPoint, computeBlend, toggleOutputs, setMode, showOnboarding, closeOnboarding, ready: true };
 })();
