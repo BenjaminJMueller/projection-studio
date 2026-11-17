@@ -10,7 +10,7 @@ Projection Studio ist im Rahmen der Lehre entstanden. Anlass war eine Installati
 
 - 8 × Epson EB-535W (Kurzdistanz), Projektion über Bodenspiegel, Bild im Projektor gespiegelt
 - großer vertikaler Lens Offset, 4 Projektoren im Innenring um eine Mittelsäule, 4 im Außenring
-- Zuspielung von einem Rechner über 2 × 4K, jeder Ausgang in 2 × 2 Projektorbilder geteilt
+- Zuspielung von einem Rechner über 2 × 4K, jeder Ausgang über einen Video-Wall-Controller (LogiLink HD0054) auf 4 Projektoren verteilt
 - Wiedergabe von Videos ab 2K über alle Projektoren
 
 Die Software ist nicht auf diesen Aufbau beschränkt. Jede Geometrie, die als OBJ vorliegt, lässt sich verwenden. Das Gewölbe liegt als Demo bei.
@@ -47,6 +47,18 @@ Daraus ergaben sich die Anforderungen an dieses Werkzeug:
 **Feinkorrektur.** Ein Gitter mit 3 × 3 bis 9 × 9 Stützpunkten pro Projektor, dazwischen Catmull-Rom-Interpolation. Die Ausgabe sucht pro Pixel per Fixpunktiteration die Quellposition, im Shader und identisch in TouchDesigner.
 
 **Ausgabe und Wiedergabe.** Pro Ausgang ein Vollbildfenster. Jeder Projektor wird in ein eigenes Renderziel mit Multisampling gerendert und anschließend in einem Durchgang mit Feinkorrektur und Maske in sein Bildviertel gesetzt. Videos werden auf das Modell gelegt (Draufsicht oder Modell-UV). Alle Fenster folgen einer gemeinsamen Uhr und gleichen kleine Abweichungen über die Abspielgeschwindigkeit aus, größere durch Springen.
+
+## Ausgänge und Video-Wall-Controller
+
+Die App unterstützt Video-Wall-Controller (auch Video-Wall-Prozessor genannt), die ein 4K-Signal in 2 × 2 Full-HD-Signale aufteilen. Im Gewölbe ist das ein LogiLink HD0054 je Ausgang. Vergleichbare Geräte gibt es unter anderem von StarTech, Lindy oder Datapath.
+
+Gründe für diesen Weg:
+
+- **Mehr Projektoren an einem Rechner.** Übliche Grafikkarten haben vier Ausgänge, oft weniger. Mit zwei Controllern laufen acht Projektoren an zwei Ausgängen.
+- **Gleicher Bildzeitpunkt.** Die vier Projektoren an einem Controller bekommen ihre Bilder aus einem gemeinsamen 4K-Bild. Sie wechseln deshalb immer gleichzeitig, auch in den Überlappungen.
+- **Einfache Software-Seite.** Für das Betriebssystem ist jeder Controller ein einzelner 4K-Bildschirm. Die App öffnet darauf ein Vollbildfenster und setzt die vier Projektorbilder in die Viertel.
+
+Unter *Einrichten* lässt sich je Ausgang die Aufteilung wählen: *2 × 2* für einen Video-Wall-Controller, *1 × 2* für einen Splitter mit zwei Ausgängen, *Ganz*, wenn der Projektor direkt angeschlossen ist. Am Controller selbst sollte der reine 2 × 2-Modus ohne Rahmenausgleich (Bezel Correction) eingestellt sein. Überlappung und Überblendung übernimmt die App.
 
 ## Arbeitsablauf
 
