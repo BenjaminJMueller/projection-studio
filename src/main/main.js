@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import dgram from 'node:dgram';
 import { oscMessage } from '../core/osc.js';
-import { checkForUpdates } from './updater.js';
+import { checkForUpdates, updatesEnabled } from './updater.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..', '..');
@@ -210,7 +210,7 @@ function buildMenu() {
       submenu: [
         { label: 'Einführung anzeigen', click: send('onboarding') },
         { type: 'separator' },
-        { label: 'Nach Updates suchen …', click: () => checkForUpdates(mainWin, true) },
+        ...(updatesEnabled() ? [{ label: 'Nach Updates suchen …', click: () => checkForUpdates(mainWin, true) }] : []),
         { label: `Version ${app.getVersion()}`, enabled: false },
       ],
     },

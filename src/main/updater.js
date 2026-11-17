@@ -15,6 +15,11 @@ import { isNewer, pickFile } from '../shared/version.js';
 
 let busy = false;
 
+/** Updates nur, wenn in package.json ein updateFeed steht (öffentlich erreichbare Releases). */
+export function updatesEnabled() {
+  try { return !!JSON.parse(fs.readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8')).updateFeed; } catch { return false; }
+}
+
 async function feedUrl() {
   try {
     const pkg = JSON.parse(await fsp.readFile(path.join(app.getAppPath(), 'package.json'), 'utf8'));

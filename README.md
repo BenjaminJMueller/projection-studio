@@ -40,9 +40,9 @@ Alle Versionen stehen unter [Releases](https://github.com/BenjaminJMueller/proje
 
 ### Updates
 
-Die App prüft beim Start, ob es eine neuere Version gibt, und fragt dann nach. Auf dem Mac lädt sie das Update, prüft die Prüfsumme, tauscht sich nach dem Beenden selbst aus und startet neu. Ein Apple-Entwicklerkonto ist dafür nicht nötig. Unter Windows startet sie den neuen Installer. Von Hand geht es über **Hilfe → Nach Updates suchen …**.
+Neue Versionen lädst du über die Links oben herunter. Jeder Push auf `main` erzeugt eine neue Version mit fortlaufender Nummer (`1.0.<Build>`), die Nummer steht im Menü **Hilfe**.
 
-Jeder Push auf `main` erzeugt eine neue Version mit fortlaufender Nummer (`1.0.<Build>`). Die Update-Information liegt als `latest.json` im Release. Die App liest sie ohne Anmeldung, deshalb funktioniert das nur, wenn die Releases öffentlich erreichbar sind. Die Adresse steht in `package.json` unter `updateFeed`.
+Ein Auto-Update ist eingebaut, aber ausgeschaltet, weil die App die Releases eines privaten Repos ohne Anmeldung nicht lesen kann. Zum Einschalten in `package.json` den Eintrag `"updateFeed": "https://github.com/<Besitzer>/<Repo>/releases/latest/download/latest.json"` auf ein öffentlich erreichbares Release setzen. Die App prüft dann beim Start auf neue Versionen, lädt sie mit Prüfsumme, tauscht sich auf dem Mac selbst aus und startet unter Windows den Installer. `latest.json` erzeugt der Build bereits.
 
 ## Arbeitsablauf in Kürze
 

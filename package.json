@@ -16,7 +16,6 @@
   },
   "author": "Benny",
   "license": "UNLICENSED",
-  "updateFeed": "https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/latest.json",
   "private": true,
   "dependencies": {
     "three": "^0.169.0"
