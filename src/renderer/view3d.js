@@ -133,6 +133,14 @@ export class View3D {
     const p = this.project.projectors.find((x) => x.id === this.activeId);
     if (!p || !this.model) return;
     const r = this.markerSize;
+    // vorgegebene Bildmitte
+    if (p.centerHint?.world) {
+      const ring = new THREE.Mesh(new THREE.RingGeometry(r * 3.5, r * 4.2, 40), new THREE.MeshBasicMaterial({ color: p.color, side: THREE.DoubleSide, depthTest: false, transparent: true, opacity: 0.9 }));
+      ring.position.set(...p.centerHint.world);
+      ring.lookAt(this.camera.position);
+      ring.renderOrder = 8;
+      g.add(ring);
+    }
     // Vorschläge für den nächsten Punkt (blaue Rauten)
     for (const c of this.candidates) {
       const m = new THREE.Mesh(new THREE.OctahedronGeometry(r * 1.8), new THREE.MeshBasicMaterial({ color: 0x4da3ff, wireframe: true, depthTest: false }));

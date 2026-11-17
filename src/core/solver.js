@@ -50,7 +50,7 @@ export function pixelRay(cam, u, v) {
 }
 
 function buildResidualFn(ctx) {
-  const { pts, mirror, prior, pixelSigma, minDepth } = ctx;
+  const { pts, mirror, prior, pixelSigma, minDepth, centerHint, W, H } = ctx;
   return (p) => {
     const cam = unpack(p);
     cam.mirror = mirror;
@@ -64,6 +64,13 @@ function buildResidualFn(ctx) {
       } else {
         res.push(w * (pr.u - P.image[0]), w * (pr.v - P.image[1]));
       }
+    }
+    // Vorgabe "Bildmitte liegt ungefähr hier im Modell"
+    if (centerHint) {
+      const pr = projectPoint(cam, centerHint.world);
+      const k = pixelSigma / (centerHint.sigma * W);
+      if (pr.z <= minDepth) res.push(1e3, 1e3);
+      else res.push(k * (pr.u - W / 2), k * (pr.v - H / 2));
     }
     // Priors (MAP): (wert - erwartet)/sigma * pixelSigma, damit vergleichbar mit Pixelresiduen
     const s = pixelSigma;
@@ -203,6 +210,7 @@ function rotationAngleDeg(R1, R2) {
  *  pixelSigma: angenommene Klickgenauigkeit in Pixel (Standard 2)
  *  allowMirror: gespiegelte Variante zulassen (Standard: true, aber mit Strafe)
  *  mountMode: 'auto' | 'normal' | 'flipped'  (Achse unter / über dem Bild)
+ *  centerHint: {world:[x,y,z], sigma?:number} – Modellpunkt, der ungefähr in der Bildmitte liegt
  */
 export function solveProjector(o) {
   const W = o.width, H = o.height;
@@ -253,7 +261,8 @@ export function solveProjector(o) {
   for (const mirror of mirrorOptions) {
     for (const cyo of cyOptions) {
       const prior = { ...priorBase, cy: { mu: cyo.cy, sigma: lens.cySigmaFrac * H } };
-      const ctx = { pts, mirror, prior, pixelSigma, minDepth };
+      const centerHint = o.centerHint?.world ? { world: o.centerHint.world, sigma: o.centerHint.sigma || 0.2 } : null;
+      const ctx = { pts, mirror, prior, pixelSigma, minDepth, centerHint, W, H };
       const fn = buildResidualFn(ctx);
       const intr = { f: o.fixFocal ? fFixed : fMu, cx: o.fixPrincipal ? (o.cx ?? prior.cx.mu) : prior.cx.mu, cy: o.fixPrincipal ? (o.cy ?? cyo.cy) : cyo.cy };
 

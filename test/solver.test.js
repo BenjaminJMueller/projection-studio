@@ -68,7 +68,13 @@ function runMany(label, opts, minSuccessRate) {
       const sc = makeScenario(seed, opts);
       if (!sc) continue;
       total++;
-      const res = solveProjector({ points: sc.points, width: W, height: H, lens });
+      let centerHint = null;
+      if (opts.hint) {
+        // Modellpunkt nahe der Bildmitte suchen (so wie ein Nutzer ihn anklicken würde)
+        let bd = 1e9;
+        for (const X of verts) { const q = projectPoint(sc.cam, X); const d = Math.hypot(q.u - W / 2, q.v - H / 2); if (q.z > 0 && d < bd) { bd = d; centerHint = { world: X }; } }
+      }
+      const res = solveProjector({ points: sc.points, width: W, height: H, lens, centerHint });
       times.push(res.solution?.solveMs ?? 0);
       if (!res.ok) continue;
       const err = norm3(sub3(res.solution.center, sc.center));
@@ -94,6 +100,7 @@ function runMany(label, opts, minSuccessRate) {
 runMany('6 verteilte Punkte, 1.5px Rauschen', { n: 6 }, 0.9);
 runMany('5 verteilte Punkte', { n: 5 }, 0.85);
 runMany('6 eng beieinander liegende Punkte (camSchnappr-Problemfall)', { n: 6, clustered: true }, 0.6);
+runMany('6 eng liegende Punkte + Bildmitte im Modell angeklickt', { n: 6, clustered: true, hint: true }, 0.75);
 runMany('8 Punkte, Beamer kopfüber montiert', { n: 8, flipped: true }, 0.9);
 
 export function debugScenario(seed, opts) {

@@ -45,7 +45,7 @@ const active = () => S.project.projectors.find((p) => p.id === S.activeId);
 const activePoint = () => active()?.points.find((x) => x.id === S.activePointId);
 
 function snapshot() {
-  return JSON.stringify(S.project.projectors.map((p) => ({ id: p.id, points: p.points, masks: p.masks, nextPointId: p.nextPointId })));
+  return JSON.stringify(S.project.projectors.map((p) => ({ id: p.id, points: p.points, masks: p.masks, nextPointId: p.nextPointId, centerHint: p.centerHint || null })));
 }
 function pushUndo() {
   undoStack.push({ snap: snapshot(), activeId: S.activeId, activePointId: S.activePointId });
@@ -99,6 +99,7 @@ function runSolve(p) {
       mountMode: p.mountMode,
       previous: p.solution,
       positionPrior: p.positionPrior || null,
+      centerHint: p.centerHint || null,
     },
   });
 }
@@ -144,6 +145,15 @@ const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 function onModelPick(world, snapped) {
   if (!S.model) return;
   const p = active();
+  if (S.pickCenter) {
+    pushUndo();
+    p.centerHint = { world };
+    S.pickCenter = false;
+    if (p.points.length) scheduleSolve(p);
+    markDirty();
+    toast(`Bildmitte für ${p.name} gesetzt`);
+    return refresh();
+  }
   if (S.pendingRepick && activePoint()) {
     pushUndo();
     activePoint().world = world;
@@ -371,6 +381,11 @@ function renderSettings() {
     row('Montage', select([['auto', 'Automatisch'], ['normal', 'Achse unter dem Bild'], ['flipped', 'Achse über dem Bild']], p.mountMode, (v) => { p.mountMode = v; scheduleSolve(p); markDirty(); refresh(); }),
       'Kurzdistanz-Beamer projizieren komplett auf eine Seite der Objektivachse. Je nach Menü-Einstellung (Decke/Tisch) liegt sie über oder unter dem Bild. Automatisch prüft beides.'),
     el('div', { class: 'sep' }),
+    row('Bildmitte', el('div', { style: 'display:flex;gap:8px;align-items:center' },
+      el('button', { class: `btn ${S.pickCenter ? 'on' : ''}`, onclick: () => { S.pickCenter = !S.pickCenter; refresh(); } }, S.pickCenter ? 'Im Modell klicken …' : p.centerHint ? 'Neu wählen' : 'Im Modell wählen'),
+      p.centerHint ? el('button', { class: 'link', onclick: () => { pushUndo(); p.centerHint = null; scheduleSolve(p); markDirty(); refresh(); } }, 'Entfernen') : null),
+      'Wo ungefähr liegt die Mitte des Beamerbildes an der Decke? Ein Klick ins Modell genügt. Hilft dem Solver bei wenigen oder eng liegenden Punkten.'),
+    el('div', { class: 'sep' }),
     row('TD-Kamera', input(p.tdCamera, (v) => { p.tdCamera = v; markDirty(); }), 'Name des Camera COMP in TouchDesigner'),
     row('TD-Render', input(p.tdRender, (v) => { p.tdRender = v; markDirty(); }), 'Name des Render TOP, hinter den die Maske gehängt wird'),
     s ? el('div', { class: 'readout' },
@@ -450,6 +465,9 @@ function renderGuide() {
   let step = '', msg = '';
   if (!S.model) {
     msg = '<b>3D-Modell laden</b> über das Würfel-Symbol oben links';
+  } else if (S.pickCenter) {
+    step = p.name;
+    msg = 'Ungefähre <b>Bildmitte</b> des Beamers im Modell anklicken';
   } else if (S.pendingRepick) {
     step = `Punkt ${S.activePointId}`;
     msg = 'Neue Stelle im Modell anklicken';
@@ -617,7 +635,7 @@ function handleKey(e) {
     return true;
   }
   if ((e.key === 'Delete' || e.key === 'Backspace') && pt) { deleteActivePoint(); return true; }
-  if (e.key === 'Escape') { S.activePointId = null; S.pendingRepick = false; refresh(); return true; }
+  if (e.key === 'Escape') { S.activePointId = null; S.pendingRepick = false; S.pickCenter = false; refresh(); return true; }
   if (/^[1-8]$/.test(e.key) && !e.ctrlKey && !e.metaKey) {
     const target = S.project.projectors[Number(e.key) - 1];
     if (target) selectProjector(target.id);
