@@ -1,39 +1,62 @@
 # Projection Studio
 
-Projection Studio bringt Projektoren und ein 3D-Modell des Raums zur Deckung. Man klickt ein paar markante Ecken im Modell an, sucht dieselben Stellen mit dem Projektor im Raum, und die App rechnet daraus aus, wo der Projektor steht und wohin er zeigt. Danach kümmert sie sich um die Überblendung zwischen den Projektoren, kleine Restfehler und die Ausgabe, entweder direkt aus der App oder über TouchDesigner.
+Projection Studio ist ein Werkzeug für 3D-Projection-Mapping auf macOS und Windows. Es bestimmt die Lage und die Optik jedes Projektors anhand weniger Punktkorrespondenzen zwischen einem 3D-Modell (OBJ) und dem realen Projektionsbild. Darauf aufbauend berechnet es Überblendmasken mit Helligkeitsausgleich, erlaubt eine gitterbasierte Feinkorrektur und gibt das Ergebnis entweder direkt aus oder übergibt es an TouchDesigner.
 
 ![Kalibrieren](docs/screenshots/02-kalibriert.png)
 
-## Warum es diese App gibt
+## Ausgangslage
 
-Angefangen hat alles mit einer Gewölbedecke. Acht Epson-Kurzdistanzprojektoren stehen am Boden und strahlen über Spiegel nach oben, vier im Innenring um eine Mittelsäule, vier außen herum. Das Bild wird im Projektormenü gespiegelt, und die Objektive haben einen großen Versatz nach oben. Zwei 4K-Ausgänge eines einzigen Rechners versorgen je vier Projektoren.
+Entwickelt wurde die App für eine Installation auf einer Gewölbedecke:
 
-Kalibriert haben wir das zuerst in TouchDesigner mit camSchnappr und danach mit Stoner nachgezogen. In der Praxis war das zäh. Die markanten Punkte liegen in so einem Gewölbe oft eng beieinander, und schon beim sechsten Punkt ist das Modell gerne gekippt oder ganz schwarz geworden. Es gab keine zweite Ansicht, in der man sieht, wo der Projektor gerade landet. Ob das Ergebnis brauchbar war, hing vor allem davon ab, welche Punkte man zufällig gewählt hatte, und so gingen Stunden mit Probieren drauf. MadMapper kam mit dem Aufbau gar nicht zurecht.
+- 8 × Epson EB-535W (Kurzdistanz), Projektion über Bodenspiegel, Bild im Projektor gespiegelt
+- großer vertikaler Lens Offset, 4 Projektoren im Innenring um eine Mittelsäule, 4 im Außenring
+- Zuspielung von einem Rechner über 2 × 4K, jeder Ausgang in 2 × 2 Projektorbilder geteilt
+- Inhalte in TouchDesigner, Wiedergabe von Videos ab 2K über alle Projektoren
 
-Das Ziel war deshalb ein Werkzeug, das intuitiv ist, schnell zu einem stabilen Ergebnis kommt und alles an einem Ort erledigt: Kalibrieren mit Live-Ansicht, Überblenden, Feinkorrektur, Wiedergabe und die Übergabe an TouchDesigner.
+Die Software ist nicht auf diesen Aufbau beschränkt. Jede Geometrie, die als OBJ vorliegt, lässt sich verwenden. Das Gewölbe liegt als Demo bei.
 
-Daraus ist diese App entstanden. Nichts darin ist auf das Gewölbe festgelegt. Jedes OBJ-Modell funktioniert, ob Fassade, Bühnenbild, Kuppel oder Objekt. Es gibt Platz für bis zu acht Projektoren auf zwei Ausgängen, nicht gebrauchte schaltet man unter *Einrichten* ab. Auflösung, Objektiv und Aufteilung auf die Ausgänge lassen sich frei einstellen. Das Gewölbe liegt als Demo bei, und die Einführung beim ersten Start fragt, ob du damit oder mit einem eigenen Modell anfangen willst.
+## Bestehende Lösungen und Abgrenzung
 
-## Ablauf
+Für die Kalibrierung von Projektoren auf 3D-Geometrie gibt es etablierte Werkzeuge. In diesem Projekt kamen sie an Grenzen:
 
-Die App ist in vier Schritte gegliedert, die oben in der Werkzeugleiste stehen.
+| Lösung | Ansatz | Erfahrung in diesem Aufbau |
+| --- | --- | --- |
+| **camSchnappr** (TouchDesigner) | Kamerabestimmung aus Punktpaaren ohne Vorwissen über die Optik | Bei wenigen oder eng beieinander liegenden Punkten instabil, das Modell kippte oder verschwand oft beim sechsten Punkt. Keine unabhängige Ansicht, um die Lösung zu beurteilen. Das Ergebnis hing stark von der Punktwahl ab. |
+| **Stoner** (TouchDesigner) | 2D-Verzerrung des fertigen Bildes | Gut für Restfehler, kennt aber die Geometrie nicht und ersetzt keine Kalibrierung. |
+| **MadMapper** | Flächen- und 2D-Mapping, einfache 3D-Szenen | Mit Spiegel, Lens Offset und Gewölbe nicht zu einem brauchbaren Ergebnis gekommen. |
+| **Medienserver** wie disguise oder Pixera | Vollständige 3D-Kalibrierung und Wiedergabe | Technisch passend, aber an eigene Hardware und Lizenzen gebunden und für eine feste Installation mit TouchDesigner überdimensioniert. |
 
-**Einrichten.** Modell laden, Projektoren anlegen und jedem einen Ausgang und ein Bildviertel zuweisen. Hier stehen auch Auflösung, Objektiv und Spiegel.
+Projection Studio verbindet diese Schritte in einer Anwendung und setzt vor allem an der Stabilität der Kalibrierung an:
 
-**Kalibrieren.** Projektor links auswählen, eine gut erkennbare Stelle im Modell anklicken (Kante, Ecke, Bogenscheitel) und dieselbe Stelle im Raum treffen. Das geht direkt am Projektorbild mit der Maus oder in der Vorschau rechts, mit den Pfeiltasten pixelgenau. Ab vier Punkten gibt es eine erste Lösung, mit sechs gut verteilten ist sie stabil. Die App zeigt, wie gut die Punkte zusammenpassen, und schlägt vor, wo ein weiterer Punkt am meisten bringt.
+- **Kalibrierung mit Vorwissen.** Objektiv, Projektionsverhältnis, Lens Offset und eine ungefähre Position fließen als Annahmen mit Unsicherheit in die Lösung ein. Dadurch reichen vier Punkte für eine erste und sechs für eine stabile Lösung, auch wenn die Punkte ungünstig liegen.
+- **Sofortige Rückmeldung.** Jede Änderung wird im Hintergrund neu gelöst. Eine 3D-Ansicht zeigt Projektorposition und Projektionskegel, die Projektoren zeigen das Ergebnis live. Pro Punkt wird der Restfehler in Pixeln angezeigt, dazu Vorschläge, wo ein weiterer Punkt die Lösung am meisten verbessert.
+- **Überblendung aus der Geometrie.** Die Masken ergeben sich aus der Kalibrierung und berücksichtigen Abstand und Einfallswinkel. Steile Flächen lassen sich automatisch ausblenden.
+- **Ein Werkzeug für alles.** Kalibrierung, Überblendung, Feinkorrektur, Testbilder und Videowiedergabe laufen in einer App, die Übergabe an TouchDesigner geht per Export oder live per OSC.
+- **Keine Spezialhardware.** Läuft auf einem normalen Rechner mit macOS oder Windows, die Ausgänge sind einfache Vollbildfenster.
 
-Bleiben kleine Abweichungen, etwa weil der Raum nicht ganz dem Modell entspricht, hilft der Reiter *Feinkorrektur*. Dort liegt pro Projektor ein Gitter mit 3 × 3 bis 9 × 9 Punkten, an dem man das Bild zurechtzieht. Das ersetzt Stoner.
+## Technischer Ansatz
 
-**Überblenden.** Ein Klick berechnet weiche Übergänge überall, wo sich Projektoren überlappen, und gleicht die Helligkeit aus. Steile Flächen wie Wände oder Bogenseiten bleiben auf Wunsch dunkel. Eigene Masken mit weicher Kante lassen sich pro Projektor dazuzeichnen.
+**Kalibrierung.** Jeder Projektor wird als Lochkamera mit 9 Parametern modelliert (Rotation, Position, Brennweite, Bildhauptpunkt). Die Lösung ist eine MAP-Schätzung: Reprojektionsfehler in Pixeln plus gewichtete Abweichungen von den Objektiv- und Positionsannahmen, minimiert mit Levenberg-Marquardt aus mehreren Startlagen. Gespiegelte Projektion wird berücksichtigt. Der Solver läuft in einem Web Worker, die Oberfläche bleibt dabei bedienbar. Als Gütemaß dienen RMS-Fehler, die Unsicherheit der Position und die Verteilung der Punkte im Bild.
 
-**Ausgabe.** Die Projektorbilder gehen im Vollbild auf die Ausgänge. Zum Prüfen gibt es Kanten, Raster, Weiß und Projektornummern. Die App kann auch selbst ein Video auf das Modell spielen, über alle Projektoren mit Überblendung und Feinkorrektur. Beide Ausgänge laufen dabei synchron, und die Bildrate wird angezeigt. Für alles Weitere geht die Kalibrierung an TouchDesigner (siehe unten).
+**Überblendung.** Für jeden Projektor wird auf der GPU berechnet, welche anderen Projektoren dieselbe Oberfläche treffen. Der Anteil jedes Projektors folgt der Bestrahlungsstärke E ∝ cos(Einfallswinkel) / (Abstand² · cos³(Achsenwinkel)), weich ausgeblendet zu den Bildrändern und mit einstellbarem Gamma. Flächen jenseits eines Grenzwinkels können ausgeschlossen werden. Eigene Masken mit weicher Kante werden multipliziert.
+
+**Feinkorrektur.** Ein Gitter mit 3 × 3 bis 9 × 9 Stützpunkten pro Projektor, dazwischen Catmull-Rom-Interpolation. Die Ausgabe sucht pro Pixel per Fixpunktiteration die Quellposition, im Shader und identisch in TouchDesigner.
+
+**Ausgabe und Wiedergabe.** Pro Ausgang ein Vollbildfenster. Jeder Projektor wird in ein eigenes Renderziel mit Multisampling gerendert und anschließend in einem Durchgang mit Feinkorrektur und Maske in sein Bildviertel gesetzt. Videos werden auf das Modell gelegt (Draufsicht oder Modell-UV). Alle Fenster folgen einer gemeinsamen Uhr und gleichen kleine Abweichungen über die Abspielgeschwindigkeit aus, größere durch Springen.
+
+## Arbeitsablauf
+
+1. **Einrichten.** Modell laden, Projektoren aktivieren, Objektiv, Spiegel, Auflösung, Ausgang und Bildviertel festlegen.
+2. **Kalibrieren.** Projektor wählen, markante Punkte im Modell anklicken und im Projektionsbild treffen, per Maus am Projektor, in der Vorschau oder mit den Pfeiltasten (1 px, mit ⇧ 10 px). Restfehler über den Reiter *Feinkorrektur* ausgleichen.
+3. **Überblenden.** Masken berechnen, Grenzwinkel und Übergänge anpassen, eigene Masken zeichnen.
+4. **Ausgabe.** Testbilder oder Video auf den Projektoren, Export oder Live-Verbindung zu TouchDesigner.
 
 <p>
   <img src="docs/screenshots/04-blending.png" width="49%" alt="Überblenden">
   <img src="docs/screenshots/09-feinkorrektur.png" width="49%" alt="Feinkorrektur">
 </p>
 
-Das Projekt wird laufend gesichert. Rückgängig geht mit Strg/Cmd+Z. Die Einführung lässt sich unter *Hilfe → Einführung anzeigen* jederzeit wieder öffnen.
+Projekte werden automatisch gesichert, alle Schritte lassen sich rückgängig machen. Eine Einführung führt beim ersten Start durch die Einrichtung und bietet an, mit der Demo zu beginnen.
 
 ## Herunterladen
 
