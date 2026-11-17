@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; worker-src 'self' blob:; media-src 'self' blob: file:;" />
+  <title>Projektor-Kalibrator</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script type="importmap">
+    { "imports": {
+        "three": "../../node_modules/three/build/three.module.js",
+        "three/addons/": "../../node_modules/three/examples/jsm/"
+    } }
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">◎</span> Projektor-Kalibrator</div>
+    <div class="project-name" id="projectName" title="Projektname">Neues Projekt</div>
+    <div class="spacer"></div>
+    <button id="btnModel" title="OBJ-Modell laden">3D-Modell …</button>
+    <button id="btnOpen" title="Projekt öffnen (Strg/Cmd+O)">Öffnen</button>
+    <button id="btnSave" title="Projekt speichern (Strg/Cmd+S)">Speichern</button>
+    <button id="btnUndo" class="icon" title="Rückgängig (Strg/Cmd+Z)">↶</button>
+    <button id="btnRedo" class="icon" title="Wiederholen">↷</button>
+    <button id="btnOutputs" class="toggle" title="Vollbild-Ausgänge auf den Projektoren öffnen/schließen">Ausgänge aus</button>
+    <button id="btnExport" class="primary" title="Kameras + Masken für TouchDesigner exportieren (Strg/Cmd+E)">Export für TouchDesigner</button>
+  </header>
+
+  <main class="layout">
+    <aside class="panel left">
+      <section>
+        <h3>Projektoren</h3>
+        <div id="projList" class="proj-list"></div>
+      </section>
+      <section id="projSettings" class="settings"></section>
+      <section>
+        <h3>Ausgänge</h3>
+        <div id="outputSettings"></div>
+        <div class="seg" id="outputMode" title="Was auf den Projektoren angezeigt wird">
+          <button data-mode="edges">Kanten</button>
+          <button data-mode="grid">Raster</button>
+          <button data-mode="white">Weiß</button>
+          <button data-mode="ident">Kennung</button>
+          <button data-mode="black">Schwarz</button>
+        </div>
+        <label class="check"><input type="checkbox" id="chkShowMask" /> Masken/Blending auf Ausgang anwenden</label>
+      </section>
+    </aside>
+
+    <section class="center">
+      <div class="viewbar">
+        <div class="seg" id="viewMode">
+          <button data-view="orbit" class="on" title="Frei drehen">Raum</button>
+          <button data-view="projector" title="Aus Sicht des Projektors">Projektor-Sicht</button>
+        </div>
+        <label class="check"><input type="checkbox" id="chkCoverage" checked /> Projektionen auf Modell</label>
+        <label class="check"><input type="checkbox" id="chkFrustums" checked /> Frustums</label>
+        <label class="check"><input type="checkbox" id="chkSnap" checked /> An Ecken einrasten <span class="kbd">Alt</span> = frei</label>
+        <div class="spacer"></div>
+        <button id="btnFocus" class="small" title="Ansicht auf Modell zentrieren">Zentrieren</button>
+      </div>
+      <div class="view3d-wrap">
+        <canvas id="view3d"></canvas>
+        <div id="guide" class="guide"></div>
+        <div id="hoverInfo" class="hover-info"></div>
+      </div>
+    </section>
+
+    <aside class="panel right">
+      <div class="preview-head">
+        <h3 id="previewTitle">Projektorbild</h3>
+        <span class="muted" id="previewRes"></span>
+      </div>
+      <div class="preview-wrap" id="previewWrap">
+        <canvas id="preview3d"></canvas>
+        <canvas id="preview2d"></canvas>
+      </div>
+      <div class="tabs" id="rightTabs">
+        <button data-tab="points" class="on">Punkte</button>
+        <button data-tab="masks">Masken</button>
+        <button data-tab="blend">Blending &amp; Helligkeit</button>
+      </div>
+      <div class="tab-body" data-tab="points">
+        <div id="quality" class="quality"></div>
+        <div id="warnings" class="warnings"></div>
+        <div class="point-actions">
+          <button id="btnRepick" class="small" title="3D-Position des gewählten Punkts neu im Modell anklicken">3D neu wählen</button>
+          <button id="btnDeletePoint" class="small danger" title="Punkt löschen (Entf)">Löschen</button>
+          <button id="btnClearPoints" class="small" title="Alle Punkte dieses Projektors löschen">Alle löschen</button>
+        </div>
+        <table class="points">
+          <thead><tr><th>#</th><th>Modell (x, y, z)</th><th>Projektor (px)</th><th>Fehler</th><th></th></tr></thead>
+          <tbody id="pointRows"></tbody>
+        </table>
+      </div>
+      <div class="tab-body hidden" data-tab="masks">
+        <p class="hint">Eigene Masken pro Projektor: Im Projektorbild oben klicken, um Eckpunkte zu setzen. Doppelklick oder <span class="kbd">Enter</span> schließt die Form. Punkte lassen sich verschieben.</p>
+        <div class="point-actions">
+          <button id="btnNewMask" class="small">+ Neue Maske</button>
+          <button id="btnDeleteMask" class="small danger">Maske löschen</button>
+        </div>
+        <div id="maskList" class="mask-list"></div>
+        <div id="maskProps"></div>
+      </div>
+      <div class="tab-body hidden" data-tab="blend">
+        <p class="hint">Aus der Kalibrierung aller Projektoren wird pro Projektor eine Maske berechnet: weiche Überblendung in Überlappungen und Ausgleich der Helligkeit (Abstand und Einfallswinkel). In TouchDesigner wird sie mit einem einzigen Multiply direkt nach dem Render angewendet.</p>
+        <div id="blendSettings"></div>
+        <div class="point-actions">
+          <button id="btnComputeBlend" class="primary">Masken berechnen</button>
+        </div>
+        <div id="blendStatus" class="muted"></div>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="statusbar" id="statusbar">
+    <span><span class="kbd">Klick</span> aufs Modell = Punkt setzen</span>
+    <span><span class="kbd">←↑→↓</span> verschieben (<span class="kbd">⇧</span> ×10, <span class="kbd">Alt</span> ×0,25)</span>
+    <span><span class="kbd">Tab</span> nächster Punkt</span>
+    <span><span class="kbd">Entf</span> löschen</span>
+    <span><span class="kbd">1–8</span> Projektor wählen</span>
+    <span class="spacer"></span>
+    <span id="statusText"></span>
+  </footer>
+
+  <div id="toast" class="toast"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
