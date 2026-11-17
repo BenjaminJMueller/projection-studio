@@ -50,7 +50,8 @@
         }
       ],
       "category": "public.app-category.graphics-design",
-      "identity": "-"
+      "identity": "-",
+      "artifactName": "Projection-Studio-mac.${ext}"
     },
     "win": {
       "target": [
@@ -70,12 +71,16 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Projection-Studio-Setup.${ext}"
     },
     "linux": {
       "target": [
         "AppImage"
       ]
+    },
+    "portable": {
+      "artifactName": "Projection-Studio-Portable.${ext}"
     }
   }
 }

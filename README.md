@@ -24,13 +24,19 @@ Die eigene **Videowiedergabe** spielt ein Video auf dem Modell ab, über alle Pr
 
 ## Installation
 
-Fertige Installer entstehen bei jedem Push automatisch unter **Actions → Test & Build** (Artefakte `Projection-Studio-macOS` und `Projection-Studio-Windows`). Bei einem Tag `v*` ebenfalls.
+**Direkt herunterladen** (neueste Version, wird bei jeder Änderung automatisch neu gebaut):
+
+- [Projection Studio für macOS (.dmg)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-mac.dmg)
+- [Projection Studio für Windows, Installer (.exe)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-Setup.exe)
+- [Projection Studio für Windows, ohne Installation (.exe)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-Portable.exe)
+
+Alle Versionen stehen unter [Releases](https://github.com/BenjaminJMueller/projection-studio/releases). Ein Tag `v*` (z. B. `v1.1.0`) legt zusätzlich ein festes Release mit dieser Versionsnummer an.
 
 - **macOS**: `.dmg` öffnen und die App in „Programme“ ziehen. Die App ist nicht von Apple signiert. Beim ersten Start deshalb im Finder Rechtsklick → **Öffnen**, oder im Terminal:
   ```sh
   xattr -dr com.apple.quarantine "/Applications/Projection Studio.app"
   ```
-- **Windows**: `.exe` ausführen. Falls SmartScreen warnt: **Weitere Informationen → Trotzdem ausführen**.
+- **Windows**: Installer ausführen oder die Version ohne Installation direkt starten. Falls SmartScreen warnt: **Weitere Informationen → Trotzdem ausführen**.
 
 ## Arbeitsablauf in Kürze
 

@@ -47,3 +47,33 @@ jobs:
             dist/*.dmg
             dist/*.exe
           if-no-files-found: error
+
+  # Direkter Download: jeder Push auf main ersetzt das Release „Neueste Version“,
+  # ein Tag v* legt zusätzlich ein festes Release mit dieser Versionsnummer an.
+  release:
+    needs: build
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { pattern: Projection-Studio-*, path: out, merge-multiple: true }
+      - name: Release veröffentlichen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la out
+          VERSION=$(node -p "require('./package.json').version")
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF_NAME}"; TITLE="Projection Studio ${GITHUB_REF_NAME}"
+          else
+            TAG="latest"; TITLE="Projection Studio ${VERSION} (neueste Version)"
+            gh release delete latest --yes --cleanup-tag || true
+          fi
+          NOTES="Stand: $(git log -1 --format='%h – %s')
+
+          **macOS**: Projection-Studio-mac.dmg öffnen, App in Programme ziehen, beim ersten Start Rechtsklick → Öffnen.
+          **Windows**: Projection-Studio-Setup.exe installieren oder Projection-Studio-Portable.exe ohne Installation starten."
+          gh release create "$TAG" out/*.dmg out/*.exe --target "$GITHUB_SHA" --title "$TITLE" --notes "$NOTES" --latest
