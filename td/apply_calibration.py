@@ -24,7 +24,8 @@ import os
 JSON_PATH = ''        # leer = <Projektordner>/kalibrierung/kalibrierung.json
 NETWORK_PATH = ''     # leer = Netzwerk, in dem dieser DAT liegt
 GEO_PATH = ''         # optional: Geometry COMP des Gewölbes, falls es eine eigene Transformation hat
-SETUP_MASKS = False   # True = pro Projektor "Maske_Px" (Movie File In) + "Blend_Px" (Multiply) hinter "Projektion_Px" einfügen
+SETUP_MASKS = False   # True = pro Projektor "Maske_Px" (Movie File In) + "Blend_Px" (Multiply) hinter "Projektion_Px" einfügen,
+                      # bei Feinkorrektur zusätzlich "Fein_Px" (GLSL TOP). Vorhandene Operatoren werden nur aktualisiert.
 PROJEKTION_NAMES = {  # Render TOP pro Projektor (für SETUP_MASKS)
     'P1': 'Projektion',
 }
@@ -236,6 +237,51 @@ def setup_masks(net, data, base):
             setpar(m, 'play', 0)
 
 
+def _rehook(src, new):
+    """Alle Ausgänge von src auf new umhängen und new hinter src setzen."""
+    downstream = []
+    for oc in src.outputConnectors:
+        for c in oc.connections:
+            downstream.append(c)
+    new.inputConnectors[0].connect(src)
+    for c in downstream:
+        c.connect(new)
+
+
+def setup_warp(net, data, base):
+    """Feinkorrektur: pro Projektor GLSL TOP "Fein_Px" mit Shader aus feinkorrektur/Px.frag."""
+    for pj in data['projectors']:
+        rel = pj.get('warpShader') or ''
+        if not rel:
+            continue
+        pid = pj['id']
+        try:
+            with open(os.path.join(base, rel), 'r', encoding='utf-8') as fh:
+                code = fh.read()
+        except OSError:
+            log(pid, ': Shader-Datei fehlt:', rel)
+            continue
+        dname, gname = 'Fein_%s_frag' % pid, 'Fein_' + pid
+        dat = net.op(dname)
+        g = net.op(gname)
+        if g is None and SETUP_MASKS:
+            src = net.op('Blend_' + pid) or net.op(PROJEKTION_NAMES.get(pid, 'Projektion_' + pid))
+            if src is None:
+                log(pid, ': Render TOP nicht gefunden, Feinkorrektur nicht eingefügt')
+                continue
+            if dat is None:
+                dat = net.create(textDAT, dname)
+                dat.nodeX, dat.nodeY = src.nodeX + 150, src.nodeY - 240
+            g = net.create(glslTOP, gname)
+            g.nodeX, g.nodeY = src.nodeX + 150, src.nodeY - 120
+            _rehook(src, g)
+            log(pid, ': Feinkorrektur (GLSL TOP) eingefügt')
+        if dat is not None:
+            dat.text = code
+        if g is not None and dat is not None:
+            setpar(g, 'pixeldat', dat)
+
+
 def run():
     data, path = load_json()
     base = os.path.dirname(path)
@@ -252,6 +298,7 @@ def run():
         if pj.get('touchdesigner'):
             n += apply_projector(net, pj, geoM)
     setup_masks(net, data, base)
+    setup_warp(net, data, base)
     log('%d Projektor(en) übernommen aus %s' % (n, path))
 
 

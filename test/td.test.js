@@ -20,3 +20,10 @@ for (const mirror of [false, true]) {
     });
   }
 }
+
+test('TD-Skript fügt Maske und Feinkorrektur in die Kette ein (auch bei zweitem Lauf nur einmal)', () => {
+  const out = JSON.parse(execFileSync('python3', ['test/td_net_mock.py'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString());
+  assert.deepEqual(out.chain, ['Out', 'Fein_P1', 'Blend_P1', 'Projektion_P1']);
+  assert.deepEqual(out.ops, ['Blend_P1', 'Fein_P1', 'Fein_P1_frag', 'Maske_P1', 'Out', 'Projektion_P1']);
+  assert.equal(out.pixeldat, 'Fein_P1_frag');
+});
