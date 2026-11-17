@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# Projektor-Kalibrator -> TouchDesigner
+# Projection Studio -> TouchDesigner
 #
 # Übernimmt die Kalibrierung (Kamera-Position, Rotation, FOV, Lens Shift) aus
 # kalibrierung.json auf die Kamera-COMPs und (optional) die Blend-/Masken-PNGs.

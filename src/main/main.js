@@ -21,7 +21,7 @@ function createMainWindow() {
     minWidth: 1100,
     minHeight: 700,
     backgroundColor: '#1e1e1f',
-    title: 'Projektor-Kalibrator',
+    title: 'Projection Studio',
     // Native Fensterleiste in die Werkzeugleiste integrieren (macOS: Ampel links, Windows: Schaltflächen rechts)
     ...(isMac
       ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 15 } }

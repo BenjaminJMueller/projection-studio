@@ -1,0 +1,9 @@
+Copyright (c) 2026 BenjaminJMueller. Alle Rechte vorbehalten.
+
+Diese Software ist nicht zur Weitergabe bestimmt. Nutzung, Vervielfältigung,
+Veränderung und Verbreitung sind nur mit ausdrücklicher Erlaubnis des
+Rechteinhabers gestattet.
+
+Enthaltene Fremdsoftware:
+- three.js, Copyright © 2010-2024 three.js authors, MIT-Lizenz
+  (siehe node_modules/three/LICENSE bzw. src/vendor/three-addons).

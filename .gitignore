@@ -3,3 +3,5 @@ dist/
 test-output/
 .DS_Store
 *.log
+__pycache__/
+*.pyc

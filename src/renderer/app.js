@@ -1024,7 +1024,7 @@ async function chooseModel() {
 }
 
 function serialize() {
-  return JSON.stringify({ app: 'projektor-kalibrator', ...S.project }, null, 1);
+  return JSON.stringify({ app: 'projection-studio', ...S.project }, null, 1);
 }
 
 async function save(as = false) {
@@ -1117,7 +1117,7 @@ async function exportTD() {
     projectors.push(ex);
   }
   const out = {
-    app: 'Projektor-Kalibrator',
+    app: 'Projection Studio',
     version: 1,
     created: new Date().toISOString(),
     model: S.project.model,
@@ -1132,8 +1132,7 @@ async function exportTD() {
   await api.writeFile(`${base}/kalibrierung.json`, JSON.stringify(out, null, 2));
   const { td } = await api.paths();
   try {
-    const script = await api.readFile(`${td}/apply_calibration.py`, 'utf8');
-    await api.writeFile(`${base}/apply_calibration.py`, script);
+    for (const n of ['apply_calibration.py', 'osc_callbacks.py']) await api.writeFile(`${base}/${n}`, await api.readFile(`${td}/${n}`, 'utf8'));
   } catch { /* im Browser-Modus nicht vorhanden */ }
   toast(`Export fertig: ${projectors.length} Projektor(en) → ${base}`);
   api.showItem(`${base}/kalibrierung.json`);

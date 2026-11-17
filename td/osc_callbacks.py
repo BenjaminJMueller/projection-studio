@@ -1,12 +1,12 @@
 # -----------------------------------------------------------------------------
-# Projektor-Kalibrator -> TouchDesigner LIVE (OSC)
+# Projection Studio -> TouchDesigner LIVE (OSC)
 #
 # Einrichtung (einmalig):
 #   1. Text DAT "apply_calibration" mit dem Inhalt von apply_calibration.py anlegen
 #      (im selben Netzwerk wie die Kameras).
 #   2. OSC In DAT anlegen, Network Port = 7000 (wie in der App eingestellt).
 #   3. Im OSC In DAT als "Callbacks DAT" einen Text DAT mit DIESEM Code setzen.
-#   4. In der App links „Live an TouchDesigner senden“ einschalten.
+#   4. In der App unter Ausgabe → TouchDesigner „Live senden“ einschalten.
 # Jede Änderung der Kalibrierung landet dann sofort auf den Kameras.
 # -----------------------------------------------------------------------------
 import json

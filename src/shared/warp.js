@@ -112,7 +112,7 @@ export function touchDesignerShader(w) {
     .replace('uniform int uWarpCols;', `const int uWarpCols = ${w?.cols || 2};`)
     .replace('uniform int uWarpRows;', `const int uWarpRows = ${w?.rows || 2};`)
     .replace('uniform int uWarpOn;', `const int uWarpOn = ${isIdentity(w) ? 0 : 1};`);
-  return `// Feinkorrektur aus dem Projektor-Kalibrator. In einen GLSL TOP kopieren,
+  return `// Feinkorrektur aus dem Projection Studio. In einen GLSL TOP kopieren,
 // Eingang 0: Render TOP des Projektors. Optional Eingang 1: Maske (wird multipliziert).
 out vec4 fragColor;
 ${body}

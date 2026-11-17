@@ -1,8 +1,8 @@
 {
-  "name": "projektor-kalibrator",
-  "productName": "Projektor-Kalibrator",
-  "version": "0.1.0",
-  "description": "Projektor-Kalibrierung gegen 3D-Modell für Projection Mapping (TouchDesigner-Export)",
+  "name": "projection-studio",
+  "productName": "Projection Studio",
+  "version": "1.0.0",
+  "description": "Projektoren gegen ein 3D-Modell kalibrieren, überblenden, feinkorrigieren und abspielen – mit TouchDesigner-Anbindung",
   "main": "src/main/main.js",
   "type": "module",
   "scripts": {
@@ -26,8 +26,8 @@
     "playwright": "^1.56.1"
   },
   "build": {
-    "appId": "de.pixelcampus.projektor-kalibrator",
-    "productName": "Projektor-Kalibrator",
+    "appId": "de.pixelcampus.projection-studio",
+    "productName": "Projection Studio",
     "files": [
       "src/**/*",
       "td/**/*",
