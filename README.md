@@ -68,7 +68,7 @@ Gründe für diesen Weg:
 
 Unter *Einrichten* wird je Ausgang der Modus des Controllers gewählt: *2 × 2*, *2 nebeneinander*, *2 übereinander*, *3 nebeneinander*, *4 nebeneinander* oder *4 übereinander*, bzw. *Ganz*, wenn ein Projektor direkt angeschlossen ist. Die Projektoren des Ausgangs werden dann der Reihe nach auf die Felder verteilt. Passt die Auflösung des Bildschirms nicht zum Modus, steht ein Hinweis daneben. Am Controller selbst sollte der reine Modus ohne Rahmenausgleich (Bezel Correction) eingestellt sein. Überlappung und Überblendung übernimmt die App.
 
-Die Bildschirme werden über eine Auswahl zugewiesen. Die Ausgänge öffnen sich randlos im Vollbild auf dem gewählten Bildschirm, unter macOS und Windows. Wählt man für einen Ausgang den Bildschirm eines anderen, tauschen die beiden. Wird ein Bildschirm abgesteckt, schließt sein Ausgang. Kommt er wieder, öffnet sich der Ausgang dort erneut, auch wenn das System dem Bildschirm eine neue Kennung gegeben hat. Ändert sich die Auflösung, passt sich das Vollbild an.
+Die Bildschirme werden über eine Auswahl zugewiesen. Die Ausgänge öffnen sich randlos im Vollbild auf dem gewählten Bildschirm, unter macOS und Windows. Die Zuordnung bleibt auch nach Abstecken oder Auflösungswechsel erhalten.
 
 Zum Kalibrieren gibt es zusätzlich einen **Testausgang**. Dort lässt sich ein einzelner Projektor ohne Controller direkt anschließen, und der Ausgang zeigt immer den gerade gewählten Projektor im ganzen Bild. Mit der Option *Maus springt mit* wandert der Mauszeiger beim Wechsel des Projektors auf dessen Bild, auf dem Testausgang oder im richtigen Feld des Controllers.
 

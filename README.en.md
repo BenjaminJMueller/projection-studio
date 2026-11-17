@@ -70,7 +70,7 @@ Reasons for this approach:
 
 Under *Set up* the controller mode is chosen per output: *2 × 2*, *2 side by side*, *2 stacked*, *3 side by side*, *4 side by side* or *4 stacked*, or *Full* when a projector is connected directly. The projectors of that output are then assigned to the cells in order. If the display resolution does not match the mode, a hint appears next to it. On the controller itself, use the plain mode without bezel correction; overlap and blending are handled by the app.
 
-Displays are assigned from a menu. Outputs open borderless and full screen on the chosen display, on macOS and Windows. Choosing a display that another output already uses swaps the two. If a display is unplugged, its output closes; when it comes back, the output reopens there, even if the system has given the display a new ID. If the resolution changes, the full-screen window adapts.
+Displays are assigned from a menu. Outputs open borderless and full screen on the chosen display, on macOS and Windows. The assignment is kept after unplugging or a change of resolution.
 
 For calibration there is also a **test output**. A single projector can be connected directly without a controller, and this output always shows the currently selected projector full frame. With the *Mouse follows* option, the mouse pointer jumps to that projector's image when switching projectors, on the test output or in the right cell of the controller.
 
