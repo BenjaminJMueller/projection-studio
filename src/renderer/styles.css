@@ -137,8 +137,8 @@ input[type=range]::-webkit-slider-runnable-track {
   background: linear-gradient(to right, var(--accent) 0 var(--p), var(--track) var(--p) 100%);
 }
 /* Knopf wie macOS: klein, hell, feiner Rand, weicher Schatten. Form über data-knob umschaltbar. */
-:root { --kw: 16px; --kh: 16px; --kr: 8px; }
-:root[data-knob=capsule] { --kw: 24px; --kh: 14px; --kr: 7px; }
+:root { --kw: 24px; --kh: 14px; --kr: 7px; }
+:root[data-knob=round] { --kw: 16px; --kh: 16px; --kr: 8px; }
 :root[data-knob=tick] { --kw: 8px; --kh: 18px; --kr: 4px; }
 input[type=range]::-webkit-slider-thumb {
   -webkit-appearance: none; width: var(--kw); height: var(--kh); margin-top: calc(2px - var(--kh) / 2); border-radius: var(--kr);
