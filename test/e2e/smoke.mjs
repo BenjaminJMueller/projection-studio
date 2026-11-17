@@ -56,10 +56,11 @@ const result = await win.evaluate(async () => {
   const col = [2.0, 0, -1.8];
   const inner = (dir, off, h, ty) => mk([col[0] + dir[0] * off, h, col[2] + dir[2] * off], [col[0] + dir[0] * 4, ty, col[2] + dir[2] * 4], dir.map((x) => -x));
   const cams = {
-    P1: inner([0, 0, -1], 0.7, -2.3, -1.1),
-    P2: inner([1, 0, 0], 1.0, -2.0, -1.0),
-    P3: inner([-1, 0, 0], 1.0, -2.0, -1.0),
-    P4: inner([0, 0, 1], 0.7, -2.3, -1.1),
+    // Bildunterkante liegt auf dem Übergang Wand → Wölbung (Kämpferlinie, im Modell ca. y = 1,1)
+    P1: inner([0, 0, -1], 1.0, -2.0, 0.15),
+    P2: inner([1, 0, 0], 1.0, -1.6, 0),
+    P3: inner([-1, 0, 0], 1.0, -1.6, 0),
+    P4: inner([0, 0, 1], 1.0, -2.0, 0.2),
   };
   const out = {};
   for (const [id, cam] of Object.entries(cams)) {
