@@ -4,35 +4,39 @@ Projection Studio ist ein Werkzeug für 3D-Projection-Mapping auf macOS und Wind
 
 ![Kalibrieren](docs/screenshots/02-kalibriert.png)
 
-## Ausgangslage
+## Hintergrund
 
-Entwickelt wurde die App für eine Installation auf einer Gewölbedecke:
+Projection Studio ist im Rahmen der Lehre entstanden. Anlass war eine Installation auf einer Gewölbedecke, an der Studierende Inhalte in TouchDesigner entwickeln:
 
 - 8 × Epson EB-535W (Kurzdistanz), Projektion über Bodenspiegel, Bild im Projektor gespiegelt
 - großer vertikaler Lens Offset, 4 Projektoren im Innenring um eine Mittelsäule, 4 im Außenring
 - Zuspielung von einem Rechner über 2 × 4K, jeder Ausgang in 2 × 2 Projektorbilder geteilt
-- Inhalte in TouchDesigner, Wiedergabe von Videos ab 2K über alle Projektoren
+- Wiedergabe von Videos ab 2K über alle Projektoren
 
 Die Software ist nicht auf diesen Aufbau beschränkt. Jede Geometrie, die als OBJ vorliegt, lässt sich verwenden. Das Gewölbe liegt als Demo bei.
 
-## Bestehende Lösungen und Abgrenzung
+## Bestehende Werkzeuge
 
-Für die Kalibrierung von Projektoren auf 3D-Geometrie gibt es etablierte Werkzeuge. In diesem Projekt kamen sie an Grenzen:
+Für Projection Mapping gibt es eine Reihe etablierter Werkzeuge, unter anderem:
 
-| Lösung | Ansatz | Erfahrung in diesem Aufbau |
-| --- | --- | --- |
-| **camSchnappr** (TouchDesigner) | Kamerabestimmung aus Punktpaaren ohne Vorwissen über die Optik | Bei wenigen oder eng beieinander liegenden Punkten instabil, das Modell kippte oder verschwand oft beim sechsten Punkt. Keine unabhängige Ansicht, um die Lösung zu beurteilen. Das Ergebnis hing stark von der Punktwahl ab. |
-| **Stoner** (TouchDesigner) | 2D-Verzerrung des fertigen Bildes | Gut für Restfehler, kennt aber die Geometrie nicht und ersetzt keine Kalibrierung. |
-| **MadMapper** | Flächen- und 2D-Mapping, einfache 3D-Szenen | Mit Spiegel, Lens Offset und Gewölbe nicht zu einem brauchbaren Ergebnis gekommen. |
-| **Medienserver** wie disguise oder Pixera | Vollständige 3D-Kalibrierung und Wiedergabe | Technisch passend, aber an eigene Hardware und Lizenzen gebunden und für eine feste Installation mit TouchDesigner überdimensioniert. |
+- **camSchnappr** und **Stoner** als Komponenten für TouchDesigner (Kamerakalibrierung aus Punktpaaren bzw. 2D-Verzerrung)
+- **Kantan Mapper** in TouchDesigner für flächiges Mapping
+- **MadMapper**, **Resolume Arena**, **HeavyM** und **Millumin** für Mapping und Wiedergabe, überwiegend auf Flächen und einfacher Geometrie
+- Medienserver wie **disguise**, **Pixera** und **Watchout**, die 3D-Kalibrierung, Überblendung und Wiedergabe für große Produktionen abdecken
+- Kamerabasierte Autokalibrierung, etwa von **VIOSO** oder **scalable display technologies**
 
-Projection Studio verbindet diese Schritte in einer Anwendung und setzt vor allem an der Stabilität der Kalibrierung an:
+## Warum ein eigenes Werkzeug
 
-- **Kalibrierung mit Vorwissen.** Objektiv, Projektionsverhältnis, Lens Offset und eine ungefähre Position fließen als Annahmen mit Unsicherheit in die Lösung ein. Dadurch reichen vier Punkte für eine erste und sechs für eine stabile Lösung, auch wenn die Punkte ungünstig liegen.
-- **Sofortige Rückmeldung.** Jede Änderung wird im Hintergrund neu gelöst. Eine 3D-Ansicht zeigt Projektorposition und Projektionskegel, die Projektoren zeigen das Ergebnis live. Pro Punkt wird der Restfehler in Pixeln angezeigt, dazu Vorschläge, wo ein weiterer Punkt die Lösung am meisten verbessert.
-- **Überblendung aus der Geometrie.** Die Masken ergeben sich aus der Kalibrierung und berücksichtigen Abstand und Einfallswinkel. Steile Flächen lassen sich automatisch ausblenden.
-- **Ein Werkzeug für alles.** Kalibrierung, Überblendung, Feinkorrektur, Testbilder und Videowiedergabe laufen in einer App, die Übergabe an TouchDesigner geht per Export oder live per OSC.
-- **Keine Spezialhardware.** Läuft auf einem normalen Rechner mit macOS oder Windows, die Ausgänge sind einfache Vollbildfenster.
+Für den Aufbau oben passte keine dieser Lösungen gut. Mit camSchnappr war die Kalibrierung zeitaufwendig und schwer reproduzierbar. Die markanten Punkte im Gewölbe liegen eng beieinander, und ohne Annahmen über die Optik wurde die Lösung bei solchen Punkten instabil. Eine unabhängige Ansicht, an der sich das Ergebnis beurteilen lässt, gab es nicht. MadMapper kam mit Spiegel, Lens Offset und Gewölbe nicht zu einem brauchbaren Ergebnis. Medienserver und kamerabasierte Systeme können das, sind aber an eigene Hardware und Lizenzen gebunden und für eine Lehrinstallation mit TouchDesigner nicht angemessen.
+
+Daraus ergaben sich die Anforderungen an dieses Werkzeug:
+
+- eine Kalibrierung, die auch mit wenigen, ungünstig liegenden Punkten stabil bleibt, weil Objektiv, Lens Offset und ungefähre Position als Vorwissen einfließen
+- direkte Rückmeldung in einer 3D-Ansicht und auf den Projektoren, damit nachvollziehbar ist, was die Lösung tut
+- Überblendung, Feinkorrektur und Testbilder an einem Ort, ohne zusätzliche Komponenten
+- eine Übergabe an TouchDesigner, die sich in bestehende Netzwerke einfügt
+- eine eigene Wiedergabe, damit die Installation auch ohne TouchDesigner bespielt werden kann
+- lauffähig auf einem normalen Rechner unter macOS und Windows, verständlich auch für Studierende ohne Vorerfahrung
 
 ## Technischer Ansatz
 
