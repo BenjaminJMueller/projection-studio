@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import dgram from 'node:dgram';
 import { oscMessage } from '../core/osc.js';
+import { checkForUpdates } from './updater.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..', '..');
@@ -206,7 +207,12 @@ function buildMenu() {
     {
       label: 'Hilfe',
       role: 'help',
-      submenu: [{ label: 'Einführung anzeigen', click: send('onboarding') }],
+      submenu: [
+        { label: 'Einführung anzeigen', click: send('onboarding') },
+        { type: 'separator' },
+        { label: 'Nach Updates suchen …', click: () => checkForUpdates(mainWin, true) },
+        { label: `Version ${app.getVersion()}`, enabled: false },
+      ],
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
@@ -215,6 +221,7 @@ function buildMenu() {
 app.whenReady().then(() => {
   buildMenu();
   createMainWindow();
+  setTimeout(() => checkForUpdates(mainWin, false), 5000);
   screen.on('display-added', () => mainWin?.webContents.send('displays:changed'));
   screen.on('display-removed', () => mainWin?.webContents.send('displays:changed'));
   app.on('activate', () => {

@@ -38,6 +38,12 @@ Alle Versionen stehen unter [Releases](https://github.com/BenjaminJMueller/proje
   ```
 - **Windows**: Installer ausführen oder die Version ohne Installation direkt starten. Falls SmartScreen warnt: **Weitere Informationen → Trotzdem ausführen**.
 
+### Updates
+
+Die App prüft beim Start, ob es eine neuere Version gibt, und fragt dann nach. Auf dem Mac lädt sie das Update, prüft die Prüfsumme, tauscht sich nach dem Beenden selbst aus und startet neu. Ein Apple-Entwicklerkonto ist dafür nicht nötig. Unter Windows startet sie den neuen Installer. Von Hand geht es über **Hilfe → Nach Updates suchen …**.
+
+Jeder Push auf `main` erzeugt eine neue Version mit fortlaufender Nummer (`1.0.<Build>`). Die Update-Information liegt als `latest.json` im Release. Die App liest sie ohne Anmeldung, deshalb funktioniert das nur, wenn die Releases öffentlich erreichbar sind. Die Adresse steht in `package.json` unter `updateFeed`.
+
 ## Arbeitsablauf in Kürze
 
 1. **Modell laden** (Einrichten). Ein Beispiel liegt in `examples/`.

@@ -36,6 +36,11 @@ jobs:
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npm test
+      - name: Versionsnummer setzen (Tag v* oder fortlaufend x.y.<Lauf>)
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then V="${GITHUB_REF_NAME#v}"; else V="$(node -p "require('./package.json').version.split('.').slice(0,2).join('.')").${{ github.run_number }}"; fi
+          npm version "$V" --no-git-tag-version --allow-same-version
       - name: Build
         run: npm run dist
         env:
@@ -45,6 +50,7 @@ jobs:
           name: Projection-Studio-${{ matrix.os == 'macos-latest' && 'macOS' || 'Windows' }}
           path: |
             dist/*.dmg
+            dist/*.zip
             dist/*.exe
           if-no-files-found: error
 
@@ -65,15 +71,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ls -la out
-          VERSION=$(node -p "require('./package.json').version")
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            TAG="${GITHUB_REF_NAME}"; TITLE="Projection Studio ${GITHUB_REF_NAME}"
+            VERSION="${GITHUB_REF_NAME#v}"; TAG="${GITHUB_REF_NAME}"; TITLE="Projection Studio ${VERSION}"
           else
+            VERSION="$(node -p "require('./package.json').version.split('.').slice(0,2).join('.')").${{ github.run_number }}"
             TAG="latest"; TITLE="Projection Studio ${VERSION} (neueste Version)"
             gh release delete latest --yes --cleanup-tag || true
           fi
-          NOTES="Stand: $(git log -1 --format='%h – %s')
+          SUBJECT="$(git log -1 --format='%s')"
+          # Update-Information für die App (src/main/updater.js)
+          node -e '
+            const fs = require("fs"), c = require("crypto");
+            const f = (n) => ({ name: n, sha256: c.createHash("sha256").update(fs.readFileSync("out/" + n)).digest("hex"), size: fs.statSync("out/" + n).size });
+            fs.writeFileSync("out/latest.json", JSON.stringify({ version: process.argv[1], notes: process.argv[2], date: new Date().toISOString(),
+              files: { mac: f("Projection-Studio-mac.zip"), win: f("Projection-Studio-Setup.exe") } }, null, 2));
+          ' "$VERSION" "$SUBJECT"
+          cat out/latest.json
+          NOTES="Version ${VERSION} – ${SUBJECT}
 
-          **macOS**: Projection-Studio-mac.dmg öffnen, App in Programme ziehen, beim ersten Start Rechtsklick → Öffnen.
+          **macOS**: Projection-Studio-mac.dmg öffnen, App in Programme ziehen, beim ersten Start Rechtsklick → Öffnen. Danach aktualisiert sich die App selbst.
           **Windows**: Projection-Studio-Setup.exe installieren oder Projection-Studio-Portable.exe ohne Installation starten."
-          gh release create "$TAG" out/*.dmg out/*.exe --target "$GITHUB_SHA" --title "$TITLE" --notes "$NOTES" --latest
+          gh release create "$TAG" out/*.dmg out/*.zip out/*.exe out/latest.json --target "$GITHUB_SHA" --title "$TITLE" --notes "$NOTES" --latest
