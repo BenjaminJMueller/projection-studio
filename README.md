@@ -1,109 +1,106 @@
 # Projection Studio
 
-Projektoren gegen ein 3D-Modell kalibrieren, automatisch überblenden, fein korrigieren und Videos direkt abspielen, mit Anbindung an TouchDesigner. Läuft unter macOS und Windows.
-
-Gebaut für eine Gewölbedecke mit acht Kurzdistanz-Projektoren (4 im Innenring, 4 im Außenring, über Bodenspiegel), die über zwei 4K-Ausgänge mit je vier Bildern laufen. Die App ist aber nicht auf diesen Aufbau festgelegt.
+Projection Studio bringt Projektoren und ein 3D-Modell des Raums zur Deckung. Man klickt ein paar markante Ecken im Modell an, sucht dieselben Stellen mit dem Projektor im Raum, und die App rechnet daraus aus, wo der Projektor steht und wohin er zeigt. Danach kümmert sie sich um die Überblendung zwischen den Projektoren, kleine Restfehler und die Ausgabe, entweder direkt aus der App oder über TouchDesigner.
 
 ![Kalibrieren](docs/screenshots/02-kalibriert.png)
 
-## Was die App kann
+## Wie es dazu kam
 
-| Schritt | Inhalt |
-| --- | --- |
-| **1 Einrichten** | 3D-Modell (OBJ) laden, Projektoren anlegen, Auflösung, Objektiv und Spiegel einstellen, HDMI-Ausgang und Bildviertel zuweisen. |
-| **2 Kalibrieren** | Punkte im Modell anklicken und auf der echten Decke platzieren, direkt am Projektor oder in der Vorschau. Die Lage jedes Projektors wird laufend neu berechnet, mit Gütewert und Vorschlägen für die nächsten Punkte. Im Reiter **Feinkorrektur** lässt sich das Bild pro Projektor über ein Gitter mit 3×3 bis 9×9 Punkten nachziehen, als Ersatz für Stoner. |
-| **3 Überblenden** | Weiche Überblendmasken für alle Überlappungen berechnen, mit Helligkeitsausgleich. Steile Flächen wie Wände und Bogenseiten bleiben dunkel. Eigene weiche Masken lassen sich pro Projektor zeichnen. |
-| **4 Ausgabe** | Vollbild auf den Projektoren ausgeben: Video, Kanten, Raster, Weiß oder Projektornummer. Export und Live-Verbindung zu TouchDesigner. |
+Angefangen hat alles mit einer Gewölbedecke: acht Epson-Kurzdistanzprojektoren, die über Spiegel am Boden nach oben strahlen, vier im Innenring um eine Mittelsäule, vier außen herum. Dazu zwei 4K-Ausgänge, die je vier Projektoren versorgen. Bisher lief das in TouchDesigner mit camSchnappr und Stoner. Das hat funktioniert, war aber mühsam. Mit wenigen oder eng beieinander liegenden Punkten ist die Lösung oft gekippt, und man hat nicht gesehen, wo der Projektor gerade steht.
 
-Die eigene **Videowiedergabe** spielt ein Video auf dem Modell ab, über alle Projektoren mit Überblendung, Masken und Feinkorrektur. Beide Ausgänge laufen über eine gemeinsame Uhr synchron. Die Bildrate je Ausgang wird beim Abspielen angezeigt.
+Daraus ist diese App entstanden. Nichts darin ist auf das Gewölbe festgelegt. Jedes OBJ-Modell funktioniert, ob Fassade, Bühnenbild, Kuppel oder Objekt. Es gibt Platz für bis zu acht Projektoren auf zwei Ausgängen, nicht gebrauchte schaltet man unter *Einrichten* ab. Auflösung, Objektiv und Aufteilung auf die Ausgänge lassen sich frei einstellen. Das Gewölbe liegt als Demo bei, und die Einführung beim ersten Start fragt, ob du damit oder mit einem eigenen Modell anfangen willst.
+
+## Ablauf
+
+Die App ist in vier Schritte gegliedert, die oben in der Werkzeugleiste stehen.
+
+**Einrichten.** Modell laden, Projektoren anlegen und jedem einen Ausgang und ein Bildviertel zuweisen. Hier stehen auch Auflösung, Objektiv und Spiegel.
+
+**Kalibrieren.** Projektor links auswählen, eine gut erkennbare Stelle im Modell anklicken (Kante, Ecke, Bogenscheitel) und dieselbe Stelle im Raum treffen. Das geht direkt am Projektorbild mit der Maus oder in der Vorschau rechts, mit den Pfeiltasten pixelgenau. Ab vier Punkten gibt es eine erste Lösung, mit sechs gut verteilten ist sie stabil. Die App zeigt, wie gut die Punkte zusammenpassen, und schlägt vor, wo ein weiterer Punkt am meisten bringt.
+
+Bleiben kleine Abweichungen, etwa weil der Raum nicht ganz dem Modell entspricht, hilft der Reiter *Feinkorrektur*. Dort liegt pro Projektor ein Gitter mit 3 × 3 bis 9 × 9 Punkten, an dem man das Bild zurechtzieht. Das ersetzt Stoner.
+
+**Überblenden.** Ein Klick berechnet weiche Übergänge überall, wo sich Projektoren überlappen, und gleicht die Helligkeit aus. Steile Flächen wie Wände oder Bogenseiten bleiben auf Wunsch dunkel. Eigene Masken mit weicher Kante lassen sich pro Projektor dazuzeichnen.
+
+**Ausgabe.** Die Projektorbilder gehen im Vollbild auf die Ausgänge. Zum Prüfen gibt es Kanten, Raster, Weiß und Projektornummern. Die App kann auch selbst ein Video auf das Modell spielen, über alle Projektoren mit Überblendung und Feinkorrektur. Beide Ausgänge laufen dabei synchron, und die Bildrate wird angezeigt. Für alles Weitere geht die Kalibrierung an TouchDesigner (siehe unten).
 
 <p>
   <img src="docs/screenshots/04-blending.png" width="49%" alt="Überblenden">
   <img src="docs/screenshots/09-feinkorrektur.png" width="49%" alt="Feinkorrektur">
 </p>
 
-## Installation
+Das Projekt wird laufend gesichert. Rückgängig geht mit Strg/Cmd+Z. Die Einführung lässt sich unter *Hilfe → Einführung anzeigen* jederzeit wieder öffnen.
 
-**Direkt herunterladen** (neueste Version, wird bei jeder Änderung automatisch neu gebaut):
+## Herunterladen
 
-- [Projection Studio für macOS (.dmg)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-mac.dmg)
-- [Projection Studio für Windows, Installer (.exe)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-Setup.exe)
-- [Projection Studio für Windows, ohne Installation (.exe)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-Portable.exe)
+Die aktuelle Version wird bei jeder Änderung automatisch gebaut:
 
-Alle Versionen stehen unter [Releases](https://github.com/BenjaminJMueller/projection-studio/releases). Ein Tag `v*` (z. B. `v1.1.0`) legt zusätzlich ein festes Release mit dieser Versionsnummer an.
+- [macOS (.dmg)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-mac.dmg)
+- [Windows, Installer (.exe)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-Setup.exe)
+- [Windows, ohne Installation (.exe)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-Portable.exe)
 
-- **macOS**: `.dmg` öffnen und die App in „Programme“ ziehen. Die App ist nicht von Apple signiert. Beim ersten Start deshalb im Finder Rechtsklick → **Öffnen**, oder im Terminal:
-  ```sh
-  xattr -dr com.apple.quarantine "/Applications/Projection Studio.app"
-  ```
-- **Windows**: Installer ausführen oder die Version ohne Installation direkt starten. Falls SmartScreen warnt: **Weitere Informationen → Trotzdem ausführen**.
+Ältere Stände liegen unter [Releases](https://github.com/BenjaminJMueller/projection-studio/releases). Die Versionsnummer steht im Menü *Hilfe*.
 
-### Updates
+Die Mac-App ist nicht bei Apple signiert. Beim ersten Start deshalb im Finder per Rechtsklick auf *Öffnen* gehen oder im Terminal einmal das hier ausführen:
 
-Neue Versionen lädst du über die Links oben herunter. Jeder Push auf `main` erzeugt eine neue Version mit fortlaufender Nummer (`1.0.<Build>`), die Nummer steht im Menü **Hilfe**.
+```sh
+xattr -dr com.apple.quarantine "/Applications/Projection Studio.app"
+```
 
-Ein Auto-Update ist eingebaut, aber ausgeschaltet, weil die App die Releases eines privaten Repos ohne Anmeldung nicht lesen kann. Zum Einschalten in `package.json` den Eintrag `"updateFeed": "https://github.com/<Besitzer>/<Repo>/releases/latest/download/latest.json"` auf ein öffentlich erreichbares Release setzen. Die App prüft dann beim Start auf neue Versionen, lädt sie mit Prüfsumme, tauscht sich auf dem Mac selbst aus und startet unter Windows den Installer. `latest.json` erzeugt der Build bereits.
+Unter Windows meldet sich eventuell SmartScreen. Dann auf *Weitere Informationen* und *Trotzdem ausführen* klicken.
 
-## Arbeitsablauf in Kürze
-
-1. **Modell laden** (Einrichten). Ein Beispiel liegt in `examples/`.
-2. **„Projektoren“** oben rechts einschalten. Jeder Projektor zeigt dann seine Nummer.
-3. **Kalibrieren**: Projektor links wählen, einen gut erkennbaren Punkt im Modell anklicken (Kante, Ecke, Bogenscheitel) und dieselbe Stelle auf der Decke anklicken oder hinziehen. Ab 6 gut verteilten Punkten ist die Lösung stabil. Pfeiltasten verschieben den aktiven Punkt um 1 px, mit ⇧ um 10 px.
-4. Bei Bedarf **Feinkorrektur**: Testbild „Raster“ ausgeben und die Gitterpunkte nachziehen, bis die Linien passen.
-5. **Überblenden → Masken berechnen**.
-6. **Ausgabe**: Video wählen und abspielen, oder nach TouchDesigner exportieren.
-
-Das Projekt wird automatisch gesichert. Rückgängig/Wiederholen mit Strg/Cmd+Z und ⇧+Strg/Cmd+Z. Die Einführung lässt sich unter **Hilfe → Einführung anzeigen** erneut öffnen.
+Ein Auto-Update ist eingebaut, aber ausgeschaltet, weil die App die Releases eines privaten Repos nicht ohne Anmeldung lesen kann. Wer es nutzen will, trägt in `package.json` unter `updateFeed` die Adresse einer öffentlich erreichbaren `latest.json` ein. Die Datei erzeugt der Build schon mit.
 
 ## TouchDesigner
 
-**Export** (Ausgabe → TouchDesigner → Exportieren …) legt neben der `.toe`-Datei einen Ordner `kalibrierung/` an:
+Unter *Ausgabe → TouchDesigner → Exportieren …* wählt man den Ordner der `.toe`-Datei. Dort entsteht ein Ordner `kalibrierung/`:
 
 ```
 kalibrierung/
-  kalibrierung.json        Kameras (Position, Rotation, FOV, Lens Shift) aller Projektoren
-  masken/Px.png            Überblendung × eigene Masken
-  feinkorrektur/Px.frag    GLSL-TOP-Shader, nur wenn eine Feinkorrektur gesetzt ist
+  kalibrierung.json        Kameras aller Projektoren (Position, Rotation, FOV, Lens Shift)
+  masken/Px.png            Überblendung und eigene Masken
+  feinkorrektur/Px.frag    Shader für einen GLSL TOP, falls eine Feinkorrektur gesetzt ist
   apply_calibration.py     Skript zum Übernehmen
-  osc_callbacks.py         Empfänger für die Live-Verbindung
+  osc_callbacks.py         Gegenstück für die Live-Verbindung
 ```
 
-**Übernehmen**: `apply_calibration.py` in einen Text DAT im Netzwerk der Kameras kopieren und **Run Script** ausführen. Das Skript stellt jede Kamera ein (Name je Projektor unter Einrichten, Standard `Kamera_Px`) und prüft das Ergebnis gegen die berechnete Projektionsmatrix. Mit `SETUP_MASKS = True` fügt es pro Projektor hinter `Projektion_Px` zusätzlich ein:
+`apply_calibration.py` kommt in einen Text DAT im selben Netzwerk wie die Kameras, dann *Run Script*. Das Skript stellt jede Kamera ein (der Name steht pro Projektor unter *Einrichten*, Standard ist `Kamera_Px`) und prüft danach selbst, ob die Projektion stimmt. Steht oben im Skript `SETUP_MASKS = True`, baut es hinter jedem Render TOP noch Maske und Feinkorrektur ein:
 
 ```
 Projektion_Px → Blend_Px (× Maske_Px) → Fein_Px (GLSL TOP) → …
 ```
 
-Vorhandene Operatoren werden bei einem erneuten Lauf nur aktualisiert.
+Läuft das Skript ein zweites Mal, aktualisiert es nur, was schon da ist.
 
-**Live (OSC)**: In TouchDesigner einen OSC In DAT auf Port 7000 anlegen und als Callbacks DAT `osc_callbacks.py` setzen (Anleitung im Kopf der Datei). In der App unter Ausgabe → TouchDesigner „Live senden“ einschalten. Jede Änderung der Kalibrierung landet dann sofort auf den Kameras.
+Für die Live-Verbindung braucht es in TouchDesigner einen OSC In DAT auf Port 7000 mit `osc_callbacks.py` als Callbacks DAT. Wie genau, steht oben in der Datei. In der App dann unter *Ausgabe* „Live senden“ einschalten. Ab da landet jede Änderung sofort auf den Kameras.
 
-## Entwicklung
+## Entwickeln
 
-Voraussetzung: Node.js 22.
+Mit Node.js 22:
 
 ```sh
 npm install
 npm start          # App starten
-npm test           # Syntaxprüfung und Unit-Tests (Solver, Export, TD-Skript, OSC, Wiedergabe, Feinkorrektur)
-npm run test:e2e   # Klickpfad durch die ganze App mit Screenshots in test-output/
-npm run dist       # Installer für das aktuelle System bauen
+npm test           # Unit-Tests: Solver, Export, TD-Skript, OSC, Wiedergabe, Feinkorrektur
+npm run test:e2e   # einmal komplett durch die App klicken, Screenshots landen in test-output/
+npm run dist       # Installer für das eigene System bauen
 ```
 
-Unter Linux ohne Bildschirm den E2E-Test mit `xvfb-run -a npm run test:e2e` starten.
+Auf Linux ohne Bildschirm läuft der E2E-Test mit `xvfb-run -a npm run test:e2e`.
 
-### Aufbau
+Die wichtigsten Ordner:
 
 ```
-src/main/        Electron-Hauptprozess: Fenster, Bildschirme, Ausgabefenster, Dateien, OSC
-src/renderer/    Hauptfenster: Oberfläche (app.js), 3D-Ansicht, Projektorvorschau, Blend-Berechnung, Solver-Worker
-src/output/      Vollbild-Ausgabefenster je HDMI-Ausgang (GPU: Szene → Feinkorrektur → Maske)
-src/core/        Solver (Lochkamera, 9 Parameter, Levenberg-Marquardt), Export, OSC
-src/shared/      Projektformat, Szene, Masken, Wiedergabe-Uhr, Verzerrungsgitter
-td/              Skripte für TouchDesigner
-test/            Unit-Tests, E2E-Test, Testvideo
+src/main/       Hauptprozess: Fenster, Bildschirme, Dateien, OSC, Updates
+src/renderer/   Oberfläche, 3D-Ansicht, Vorschau, Überblendung, Solver im Worker
+src/output/     Vollbildfenster je Ausgang (Szene, Feinkorrektur und Maske auf der GPU)
+src/core/       Solver, Export, OSC
+src/shared/     Projektformat, Masken, Wiedergabe, Verzerrungsgitter
+examples/       Demo-Gewölbe
+td/             Skripte für TouchDesigner
+test/           Tests und Testvideo
 ```
 
 ## Lizenz
 
-Privat, alle Rechte vorbehalten. Siehe [LICENSE](LICENSE). three.js steht unter MIT-Lizenz.
+Privat, alle Rechte vorbehalten, siehe [LICENSE](LICENSE). three.js steht unter MIT-Lizenz.

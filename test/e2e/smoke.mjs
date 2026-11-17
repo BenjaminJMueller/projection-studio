@@ -22,12 +22,16 @@ win.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') e
 win.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 await win.setViewportSize({ width: 1600, height: 960 }).catch(() => {});
 if (process.env.THEME) await win.emulateMedia({ colorScheme: process.env.THEME });
-await win.waitForFunction(() => window.__app?.ready && window.__app.S.model, null, { timeout: 30000 }).catch((e) => { console.error(errors); throw e; });
+await win.waitForFunction(() => window.__app?.ready, null, { timeout: 30000 }).catch((e) => { console.error(errors); throw e; });
 // Einführung beim ersten Start
 await win.waitForSelector('#onboarding:not(.hidden) .sheet', { timeout: 10000 });
 await win.waitForTimeout(400);
 await win.screenshot({ path: path.join(outDir, '00-einfuehrung-1.png') });
 await win.click('#obNext');
+await win.waitForTimeout(300);
+if (!(await win.isDisabled('#obNext'))) errors.push('error: Weiter ohne Modell möglich');
+await win.click('#obDemo');
+await win.waitForFunction(() => window.__app.S.model && !document.querySelector('#obNext').disabled, null, { timeout: 30000 });
 await win.waitForTimeout(300);
 await win.screenshot({ path: path.join(outDir, '00-einfuehrung-2.png') });
 await win.click('#obNext');

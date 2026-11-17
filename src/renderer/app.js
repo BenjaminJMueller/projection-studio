@@ -1002,6 +1002,15 @@ function deleteActivePoint() {
 }
 
 // ------------------------------------------------------------------ Datei / Projekt
+const DEMO_FILE = 'Gewoelbedecke_mit_Wandstreifen_16k.obj';
+const isDemo = () => (S.project.model.path || '').replace(/\\/g, '/').endsWith(`examples/${DEMO_FILE}`);
+async function loadDemo() {
+  const { examples } = await api.paths();
+  const ok = await loadModelFromPath(`${examples}/${DEMO_FILE}`);
+  if (ok) { S.project.model.name = 'Demo: Gewölbedecke'; refresh(); }
+  return ok;
+}
+
 async function loadModelFromPath(path) {
   try {
     const text = await api.readFile(path, 'utf8');
@@ -1204,6 +1213,7 @@ function showOnboarding(page = 0) {
 }
 function closeOnboarding(start = false) {
   $('#onboarding').classList.add('hidden');
+  if (!S.model) loadDemo();
   try { localStorage.setItem('kalib.onboarded', '1'); } catch { /* egal */ }
   if (start) { S.activeId = S.project.projectors[0].id; S.activePointId = null; setMode('calibrate'); }
 }
@@ -1222,10 +1232,14 @@ function renderOnboarding() {
       feat('projector', 'Ausgabe', 'Testbilder auf den Projektoren zeigen oder an TouchDesigner übergeben.'),
     ],
     () => [
-      el('h1', { id: 'obTitle', style: 'margin-top:8px' }, 'Modell und Bildschirme'),
-      el('p', { class: 'lead' }, 'Kurz prüfen, ob alles stimmt. Später lässt sich alles unter „Einrichten“ ändern.'),
-      el('div', { class: 'group' }, modelRow()),
-      el('div', { style: 'height:8px' }),
+      el('h1', { id: 'obTitle', style: 'margin-top:8px' }, 'Womit möchtest du starten?'),
+      el('p', { class: 'lead' }, 'Die Demo ist eine Gewölbedecke mit acht Projektoren, gut zum Ausprobieren. Alles lässt sich später unter „Einrichten“ ändern.'),
+      el('div', { class: 'choices' },
+        el('button', { class: `choice ${S.model && isDemo() ? 'on' : ''}`, id: 'obDemo', onclick: async () => { if (!(S.model && isDemo())) await loadDemo(); renderOnboarding(); } },
+          el('div', { class: 'ci', html: icon('model', 26) }), el('b', {}, 'Mit der Demo'), el('span', {}, 'Gewölbedecke, 8 Projektoren')),
+        el('button', { class: `choice ${S.model && !isDemo() ? 'on' : ''}`, id: 'obOwn', onclick: async () => { await chooseModel(); renderOnboarding(); } },
+          el('div', { class: 'ci', html: icon('file', 26) }), el('b', {}, 'Eigenes 3D-Modell'), el('span', {}, S.model && !isDemo() ? S.project.model.name : 'OBJ-Datei wählen …'))),
+      el('div', { style: 'height:14px' }),
       el('div', { class: 'group' }, ...outputRows()),
       el('p', { class: 'hint', style: 'text-align:center;margin-top:8px' }, 'Projektor 1–4 hängen an HDMI A, Projektor 5–8 an HDMI B, jeweils ein Viertel des Bildes.'),
     ],
@@ -1245,7 +1259,7 @@ function renderOnboarding() {
       el('div', { class: 'dots' }, ...Array.from({ length: OB_PAGES }, (_, i) => el('i', { class: i === obPage ? 'on' : '' }))),
       !last ? el('button', { class: 'btn', style: 'background:none;box-shadow:none', onclick: () => closeOnboarding(false), id: 'obSkip' }, 'Überspringen') : null,
       obPage > 0 ? el('button', { class: 'btn', onclick: () => { obPage--; renderOnboarding(); } }, 'Zurück') : null,
-      el('button', { class: 'btn primary', id: 'obNext', onclick: () => { if (last) closeOnboarding(true); else { obPage++; renderOnboarding(); } } }, last ? `Mit ${displayName(S.project.projectors[0])} beginnen` : 'Weiter'))));
+      el('button', { class: 'btn primary', id: 'obNext', disabled: obPage === 1 && !S.model, onclick: () => { if (last) closeOnboarding(true); else { obPage++; renderOnboarding(); } } }, last ? `Mit ${displayName(S.project.projectors[0])} beginnen` : 'Weiter'))));
   $('#obNext').focus();
 }
 
@@ -1322,7 +1336,7 @@ try { const k = localStorage.getItem('kalib.knob'); if (k) document.documentElem
 hydrateIcons();
 
 api.onMenu((cmd) => ({
-  new: async () => { await applyProject(newProject()); const { examples } = await api.paths(); loadModelFromPath(`${examples}/Gewoelbedecke_mit_Wandstreifen_16k.obj`); },
+  new: async () => { await applyProject(newProject()); loadDemo(); },
   open: () => openProject(),
   save: () => save(),
   saveAs: () => save(true),
@@ -1342,7 +1356,7 @@ api.onMenu((cmd) => ({
   S.displays = await api.listDisplays();
   // Bildschirme vorbelegen: die beiden größten Nicht-Hauptbildschirme für HDMI A/B
   const ext = S.displays.filter((d) => !d.primary).sort((a, b) => b.pixelSize.width - a.pixelSize.width);
-  const { userData, examples } = await api.paths();
+  const { userData } = await api.paths();
   const auto = `${userData}/autosave.kalib.json`;
   let restored = false;
   if (await api.exists(auto)) {
@@ -1352,9 +1366,8 @@ api.onMenu((cmd) => ({
       if (restored) toast('Letzte Sitzung wiederhergestellt');
     } catch { /* ignorieren */ }
   }
-  if (!restored) {
-    await loadModelFromPath(`${examples}/Gewoelbedecke_mit_Wandstreifen_16k.obj`);
-  }
+  // Beim allerersten Start entscheidet die Einführung, ob mit der Demo begonnen wird.
+  if (!restored && onboardingSeen()) await loadDemo();
   S.project.outputs.forEach((o, i) => {
     if (o.displayId == null || !S.displays.some((d) => d.id === o.displayId)) o.displayId = ext[i]?.id ?? null;
   });
