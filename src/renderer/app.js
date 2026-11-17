@@ -361,10 +361,15 @@ function select(options, value, onchange, attrs = {}) {
 function input(value, onchange, type = 'text', attrs = {}) {
   return el('input', { type, value, ...attrs, onchange: (e) => onchange(type === 'number' ? Number(e.target.value) : e.target.value) });
 }
-function rangeCtl(value, min, max, step, fmt, oninput, onchange) {
+/** Schieberegler im macOS-Stil: dünne Spur mit Füllung, runder Knopf, Wert rechts, optional Teilstriche. */
+function rangeCtl(value, min, max, step, fmt, oninput, onchange, ticks = 0) {
   const out = el('output', {}, fmt(value));
-  const rg = el('input', { type: 'range', min, max, step, value, oninput: (e) => { out.textContent = fmt(Number(e.target.value)); oninput?.(Number(e.target.value)); }, onchange: (e) => onchange(Number(e.target.value)) });
-  return el('div', { class: 'range' }, rg, out);
+  const pct = (v) => `${((v - min) / (max - min)) * 100}%`;
+  const rg = el('input', { type: 'range', min, max, step, value, style: `--p:${pct(value)}`,
+    oninput: (e) => { const v = Number(e.target.value); e.target.style.setProperty('--p', pct(v)); out.textContent = fmt(v); oninput?.(v); },
+    onchange: (e) => onchange(Number(e.target.value)) });
+  const track = el('div', { class: 'slider' }, rg, ticks > 1 ? el('div', { class: 'ticks', 'aria-hidden': 'true' }, ...Array.from({ length: ticks }, () => el('i'))) : null);
+  return el('div', { class: `range ${ticks > 1 ? 'has-ticks' : ''}` }, track, out);
 }
 function switchCtl(checked, onchange, attrs = {}) {
   return el('input', { type: 'checkbox', class: 'switch', checked, ...attrs, onchange: (e) => onchange(e.target.checked) });
@@ -607,23 +612,22 @@ function renderBlend() {
     gtitle('Überblendung'),
     group(
       r('Weich überblenden', switchCtl(b.auto, (v) => set('auto', v)), { tip: 'Wo sich Projektoren überlappen, wird weich übergeblendet. Gewichtet nach Abstand zum eigenen Bildrand.' }),
-      r('Breite', rangeCtl(b.width, 0.05, 1, 0.05, (v) => `${nf(v * 100, 0)} %`, null, (v) => set('width', v)), { cls: b.auto ? '' : 'dim' }),
+      r('Breite', rangeCtl(b.width, 0.05, 1, 0.05, (v) => `${nf(v * 100, 0)} %`, null, (v) => set('width', v), 5), { cls: b.auto ? '' : 'dim' }),
       r('Gamma', input(b.gamma, (v) => set('gamma', v), 'number', { step: 0.1, min: 1, max: 3, style: 'width:72px' }), { tip: 'Gamma der Beamer, meist 2,2. Verhindert dunkle oder helle Streifen in der Überblendung.' }),
     ),
     gtitle('Bogenseiten', infoBtn('Flächen, die nur von unten beleuchtet werden sollen. Gilt für alle Projektoren gleich, damit die Bilder zusammenpassen.')),
     group(
       r('Steile Flächen ausblenden', switchCtl(b.tiltFilter, (v) => set('tiltFilter', v)), { tip: 'Blendet Flächen aus, die steiler als der Grenzwinkel stehen, z. B. die Seiten der Bögen.' }),
-      r('ab Neigung', rangeCtl(b.maxTilt, 30, 89, 1, (v) => `${v}°`, null, (v) => set('maxTilt', v)), { cls: b.tiltFilter ? 'indent' : 'indent dim' }),
+      r('ab Neigung', rangeCtl(b.maxTilt, 30, 89, 1, (v) => `${v}°`, null, (v) => set('maxTilt', v), 0), { cls: b.tiltFilter ? 'indent' : 'indent dim' }),
       r('Streiflicht ausblenden', switchCtl(b.incFilter, (v) => set('incFilter', v)), { tip: 'Blendet Stellen aus, die ein Projektor nur sehr flach trifft. Dort ist das Bild verzerrt und ungleich hell.' }),
       r('ab Winkel', rangeCtl(b.maxIncidence, 50, 89, 1, (v) => `${v}°`, null, (v) => set('maxIncidence', v)), { cls: b.incFilter ? 'indent' : 'indent dim' }),
     ),
     gtitle('Helligkeit'),
     group(
       r('Angleichen', switchCtl(b.brightness, (v) => set('brightness', v)), { tip: 'Weiter entfernte oder schräg getroffene Flächen sind dunkler. Hellere Bereiche werden auf ein gemeinsames Niveau gedimmt.' }),
-      r('Stärke', rangeCtl(b.brightnessStrength, 0, 1, 0.05, (v) => `${nf(v * 100, 0)} %`, null, (v) => set('brightnessStrength', v)), { cls: b.brightness ? '' : 'dim', tip: '100 % gleicht vollständig an und kostet am meisten Gesamthelligkeit.' }),
+      r('Stärke', rangeCtl(b.brightnessStrength, 0, 1, 0.05, (v) => `${nf(v * 100, 0)} %`, null, (v) => set('brightnessStrength', v), 5), { cls: b.brightness ? '' : 'dim', tip: '100 % gleicht vollständig an und kostet am meisten Gesamthelligkeit.' }),
     ),
-    el('div', { style: 'padding:12px 0 0' }, el('button', { class: 'btn primary block', id: 'btnComputeBlend', onclick: computeBlend }, ic('refresh', 15), 'Masken berechnen')),
-    el('div', { class: 'hint', id: 'blendStatus', style: 'text-align:center' }, S.blendStatus || ''),
+    el('div', { class: 'act' }, el('span', { class: 'hint', id: 'blendStatus' }, S.blendStatus || ''), el('button', { class: 'btn primary', id: 'btnComputeBlend', onclick: computeBlend }, 'Masken berechnen')),
     gtitle(`Eigene Masken · ${displayName(p)}`,
       iconBtn('plus', 'Neue Maske zeichnen', newMask, { id: 'btnNewMask' }),
       iconBtn('trash', 'Gewählte Maske löschen', deleteMask, { disabled: !m, id: 'btnDeleteMask' })),
@@ -676,8 +680,7 @@ function renderOutput() {
       r('Live senden', switchCtl(td.live, (on) => { td.live = on; markDirty(); if (on) sendAllLive(); refresh(); }), { sub: td.live ? S.liveStatus || 'Bereit' : 'Aus' }),
       r('Ziel', el('div', { style: 'display:flex;gap:6px;width:100%' }, input(td.host, (x) => { td.host = x; markDirty(); }, 'text', { 'aria-label': 'Adresse' }), input(td.port, (x) => { td.port = x; markDirty(); }, 'number', { style: 'width:72px;flex:none', 'aria-label': 'Port' }))),
     ),
-    el('div', { style: 'padding:12px 0 0' }, el('button', { class: 'btn block', onclick: exportTD, id: 'btnExport' }, ic('export', 15), 'Für TouchDesigner exportieren …')),
-    el('div', { class: 'hint' }, 'Legt Kameras, Masken und ein Python-Skript in einen Ordner neben deiner TouchDesigner-Datei.'),
+    el('div', { class: 'act' }, el('span', { class: 'hint' }, 'Kameras, Masken und Skript für TouchDesigner'), el('button', { class: 'btn', onclick: exportTD, id: 'btnExport' }, 'Exportieren …')),
   );
   const btn = $('#btnOutputs');
   btn.classList.toggle('on', isOpen);
