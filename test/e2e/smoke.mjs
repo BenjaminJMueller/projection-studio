@@ -187,12 +187,64 @@ console.log('Ton:', JSON.stringify(audioInfo));
 await win.evaluate(() => document.getElementById('mixer')?.scrollIntoView());
 await win.waitForTimeout(300);
 await win.screenshot({ path: path.join(outDir, '08d-ton.png') });
+// Raumeinmessung im Kreis: Ausgang des Audiographen mit künstlicher Laufzeit (Lautsprecher 2: +3 ms, −6 dB)
+// als „Mikrofon“ zurückführen. Prüft Ablauf, Auswertung und Übernahme ohne echte Hardware.
+await win.evaluate(() => { window.__app.setPlay('pause'); });
+await win.evaluate(() => {
+  const { audio } = window.__app;
+  audio.recordInput = async () => {
+    const ctx = audio.ctx;
+    await ctx.audioWorklet.addModule(new URL('./recorderWorklet.js', location.href));
+    const split = ctx.createChannelSplitter(2);
+    const sum = ctx.createGain();
+    const d = ctx.createDelay(0.1); d.delayTime.value = Math.round(0.003 * ctx.sampleRate) / ctx.sampleRate; // ganze Samples, sonst filtert die Interpolation
+    const g2 = ctx.createGain(); g2.gain.value = 0.5;
+    audio.nodes.merger.connect(split);
+    split.connect(sum, 0); split.connect(d, 1); d.connect(g2); g2.connect(sum);
+    const node = new AudioWorkletNode(ctx, 'recorder', { numberOfInputs: 1, numberOfOutputs: 0 });
+    const chunks = [];
+    node.port.onmessage = (e) => chunks.push(e.data);
+    sum.connect(node);
+    return { fs: ctx.sampleRate, level: () => 0, stop: async () => {
+      split.disconnect(); sum.disconnect(); node.disconnect();
+      const n = chunks.reduce((a, c) => a + c.length, 0), samples = new Float32Array(n);
+      let o = 0; for (const c of chunks) { samples.set(c, o); o += c.length; }
+      return { samples, fs: ctx.sampleRate };
+    } };
+  };
+  audio.inputDevices = async () => [];
+});
+await win.evaluate(() => window.__app.tuning.open());
+await win.waitForSelector('#tuneSheet:not(.hidden) .sheet');
+await win.click('#tuneSheet .choice:nth-child(2)');
+await win.waitForTimeout(300);
+await win.selectOption('#tuneSheet select >> nth=1', '2');
+await win.screenshot({ path: path.join(outDir, '13-einmessen-1.png') });
+await win.click('#tuneSheet .btn.primary');
+for (let i = 0; i < 2; i++) {
+  await win.click('#btnMeasure');
+  await win.waitForSelector('#tuneSheet .status', { timeout: 60000 });
+  if (i === 0) await win.screenshot({ path: path.join(outDir, '13-einmessen-2.png') });
+  await win.click('#tuneSheet .btn.primary');
+}
+await win.waitForSelector('#btnTuneApply', { timeout: 30000 });
+await win.waitForTimeout(300);
+await win.screenshot({ path: path.join(outDir, '13-einmessen-3.png') });
+await win.click('#btnTuneApply');
+const tune = await win.evaluate(() => window.__app.S.project.audio.tuning);
+console.log('Einmessung:', JSON.stringify(tune.speakers.map((x) => ({ d: x.delay, g: x.gain, f: x.filters.length }))));
+if (tune.speakers.some((x) => x.filters.length)) errors.push('error: Einmessung setzt EQ-Filter bei flachem Weg');
+if (!(Math.abs(tune.speakers[0].delay - 3) < 0.05 && Math.abs(tune.speakers[1].delay) < 0.2 && Math.abs(tune.speakers[0].gain + 6) < 1)) errors.push('error: Einmessung ' + JSON.stringify(tune.speakers));
 await win.evaluate(() => { window.__app.S.project.audio.enabled = false; window.__app.refresh(); });
 // Leertaste: Pause
 await win.click('#modes button[data-mode=output]');
+const playBefore = await win.evaluate(() => window.__app.S.play.playing);
 await win.keyboard.press('Space');
 await win.waitForTimeout(200);
-if (await win.evaluate(() => window.__app.S.play.playing)) errors.push('error: Leertaste pausiert nicht');
+if ((await win.evaluate(() => window.__app.S.play.playing)) === playBefore) errors.push('error: Leertaste schaltet Wiedergabe nicht um');
+await win.keyboard.press('Space');
+await win.waitForTimeout(200);
+if ((await win.evaluate(() => window.__app.S.play.playing)) !== playBefore) errors.push('error: Leertaste schaltet nicht zurück');
 // Feinkorrektur: Gitter verbiegen, Ausgabe muss sich ändern
 await win.evaluate(() => { window.__app.S.project.view.outputMode = 'grid'; window.__app.refresh(); });
 await outWin.waitForTimeout(800);

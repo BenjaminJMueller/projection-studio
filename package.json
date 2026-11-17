@@ -18,6 +18,8 @@
   "license": "UNLICENSED",
   "private": true,
   "dependencies": {
+    "qrcode": "^1.5.4",
+    "selfsigned": "^2.4.1",
     "three": "^0.169.0"
   },
   "devDependencies": {

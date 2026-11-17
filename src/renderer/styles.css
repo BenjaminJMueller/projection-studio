@@ -488,3 +488,32 @@ details.more > summary:hover { color: var(--text); }
 .pair input { min-width: 0; flex: 1; }
 .pair span { color: var(--text-3); font-size: 12px; flex: none; }
 .btn.danger { background: #d94b43; color: #fff; box-shadow: none; }
+
+/* ---------- Raumeinmessung */
+.sheet.tune .body { height: auto; min-height: 520px; justify-content: flex-start; padding-top: 28px; }
+.tune-qr { display: grid; grid-template-columns: 148px 1fr; gap: 18px; align-items: center; max-width: 460px; margin: 16px auto 12px; width: 100%; }
+.tune-qr img { border-radius: 10px; background: #fff; padding: 6px; width: 148px; height: 148px; }
+.tune-qr b { font-weight: 600; font-size: 14px; }
+.tune-qr p { font-size: 12px; line-height: 17px; color: var(--text-2); margin: 4px 0 10px; }
+.tune-qr code { font-size: 11px; color: var(--text-3); word-break: break-all; }
+.tune-qr select { margin-top: 8px; width: 100%; }
+.meter.big { height: 8px; border-radius: 4px; }
+.tune-msg { margin-top: 14px; }
+.tune-msg.bad { color: var(--warn, #d9822b); }
+.tune-pos { display: flex; gap: 8px; justify-content: center; margin: 4px 0 18px; }
+.tune-pos i { width: 28px; height: 6px; border-radius: 3px; background: var(--line-strong); }
+.tune-pos i.done { background: var(--ok); }
+.tune-pos i.now { background: var(--accent); }
+.sheet.tune .status { max-width: 460px; margin: 0 auto; width: 100%; }
+.tune-table { max-width: 460px; width: 100%; margin: 0 auto 12px; max-height: 190px; overflow: auto; border-radius: 10px; box-shadow: inset 0 0 0 0.5px var(--line-strong); }
+.tune-table .th, .tune-table .tr { display: grid; grid-template-columns: 40px 1fr 1fr 60px; gap: 8px; padding: 5px 12px; font-size: 12px; text-align: left; width: 100%; font-variant-numeric: tabular-nums; }
+.tune-table .th { font-size: 10px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; position: sticky; top: 0; background: var(--bg-side); }
+.tune-table .tr { border-top: 0.5px solid var(--line); }
+.tune-table .tr.on { background: var(--accent-soft); }
+.tune-legend { max-width: 460px; width: 100%; margin: 0 auto; }
+.tune-curve { width: 100%; height: 110px; display: block; border-radius: 8px; background: var(--bg-stage); }
+.tune-legend > div { display: flex; gap: 14px; font-size: 11px; color: var(--text-2); margin-top: 6px; }
+.tune-legend .k::before { content: ''; display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 6px; }
+.tune-legend .k.a::before { background: #e3a33f; }
+.tune-legend .k.b::before { background: var(--accent); }
+.tune-legend .k.c::before { border-top: 2px dashed var(--text-3); height: 0; }

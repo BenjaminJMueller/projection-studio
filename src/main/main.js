@@ -8,6 +8,7 @@ import { oscMessage } from '../core/osc.js';
 import { checkForUpdates, updatesEnabled } from './updater.js';
 import { execFile } from 'node:child_process';
 import { tr, setLang, getLang, LANGS } from '../shared/i18n.js';
+import { startMeasureServer, stopMeasureServer, phoneRecord, phoneMessage } from './measureServer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..', '..');
@@ -122,6 +123,16 @@ function closeOutput(displayId) {
 
 ipcMain.handle('displays:list', () => listDisplays());
 ipcMain.handle('lang:get', () => getLang());
+// Raumeinmessung mit dem Handy als Mikrofon
+const measureNotify = (ev) => mainWin?.webContents.send('measure:event', ev);
+ipcMain.handle('measure:start', async (_e, address) => {
+  try { return { ok: true, ...(await startMeasureServer(app.getPath('userData'), measureNotify, address)) }; } catch (e) { return { ok: false, error: e.message }; }
+});
+ipcMain.handle('measure:stop', () => stopMeasureServer());
+ipcMain.handle('measure:message', (_e, text) => phoneMessage(text));
+ipcMain.handle('measure:record', async (_e, seconds) => {
+  try { return { ok: true, ...(await phoneRecord(seconds, () => measureNotify({ type: 'started' }))) }; } catch (e) { return { ok: false, error: e.message }; }
+});
 ipcMain.handle('lang:set', (_e, l) => changeLang(l));
 
 /** Mauszeiger setzen (x, y in Bildschirmpunkten wie screen.getAllDisplays). Ohne native Erweiterung. */

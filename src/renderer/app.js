@@ -10,6 +10,8 @@ import { computeBlendMasks } from './blend.js';
 import { makeBrowserStub } from './stub.js';
 import { icon, hydrateIcons } from './icons.js';
 import { fileUrl, targetTime, playState, totalDuration, locate, startOf, seekState } from '../shared/playback.js';
+import { createTuning } from './tuning.js';
+import { peakingResponse } from '../shared/roomeq.js';
 import { AudioEngine, MAX_SPEAKERS, SOURCE_CHANNELS, SAMPLE_RATES, BUFFER_SIZES, speakerAt } from './audio.js';
 import { defaultWarp, resizeWarp, isIdentity, inverse, gridBase, touchDesignerShader, makeWarp, GRID_SIZES, minJacobian, setBezierHandle } from '../shared/warp.js';
 import { visibleBezierHandles } from '../shared/warpdraw.js';
@@ -1283,6 +1285,7 @@ function audioGroup() {
       r('Ton ausgeben', switchCtl(a.enabled, async (on) => { a.enabled = on; markDirty(); refresh(); if (on) await refreshAudioDevices(); await syncAudio(); refresh(); }, { id: 'swAudio' }), { sub }),
       r('Gesamtpegel', rangeCtl(a.master, -60, 6, 0.5, dbText, (v) => { a.master = v; syncAudio(); }, () => markDirty())),
     ),
+    a.enabled ? tuningGroup() : null,
     more('audioSetup', 'Audiogerät',
       group(
         r('Gerät', select([['', 'Standardgerät des Systems'], ...audioDevices.filter((d) => d.deviceId !== 'default' && d.deviceId !== 'communications').map((d) => [d.deviceId, d.label || 'Gerät'])], a.deviceId,
@@ -1308,6 +1311,19 @@ function audioGroup() {
         el('div', { class: 'r' }, el('div', { class: 'lbl' }, el('span', { class: 'sub' }, 'Pegelanzeige nach Gesamt- und Einzelpegel')),
           el('div', { class: 'ctl' }, el('button', { class: 'btn', onclick: () => { A().channels = []; markDirty(); syncAudio(); refresh(); } }, 'Zurücksetzen'))))),
   ];
+}
+
+// Raumeinmessung (Assistent in tuning.js)
+const tuning = createTuning({ el, ic, icon, tr, nf, api, audio, A, markDirty, refresh, toast, peakingResponse });
+function tuningGroup() {
+  const t = A().tuning;
+  const when = t?.date ? new Date(t.date).toLocaleDateString(locale()) : '';
+  return group(
+    t ? r('Einmessung', switchCtl(!!t.enabled, (on) => { t.enabled = on; markDirty(); syncAudio(); refresh(); }, { id: 'swTuning' }),
+      { sub: `${t.enabled ? 'An' : 'Aus'} · ${t.positions} Messstellen · ${when}`, tip: 'Gleicht Laufzeit, Pegel und Klang der Lautsprecher an, gemittelt über die Liegefläche. Zum Vergleichen aus- und einschalten.' })
+      : r('Einmessung', el('span', { class: 'muted' }, 'Noch nicht gemessen'), { tip: 'Misst alle Lautsprecher an mehreren Stellen mit dem Handy oder einem Messmikrofon und gleicht Laufzeit, Pegel und Klang an.' }),
+    el('div', { class: 'r' }, el('div', { class: 'lbl' }), el('div', { class: 'ctl' }, el('button', { class: 'btn', id: 'btnTune', onclick: () => tuning.open() }, ic('mic', 14), t ? 'Neu einmessen …' : 'Einmessen …'))),
+  );
 }
 
 // Pegelanzeige nur, solange das Mischpult sichtbar ist und Ton läuft
@@ -1469,6 +1485,7 @@ function handleKey(e) {
   return false;
 }
 window.addEventListener('keydown', (e) => {
+  if (!$('#tuneSheet').classList.contains('hidden')) { if (e.key === 'Escape') tuning.close(); return; }
   if (!$('#onboarding').classList.contains('hidden')) {
     if (e.key === 'Escape') closeOnboarding(false);
     return;
@@ -1899,5 +1916,5 @@ api.onLangChanged((l) => applyLang(l));
   await syncOpenOutputs();
   refresh();
   if (!onboardingSeen()) showOnboarding(0);
-  window.__app = { S, view, refresh, assignDisplay, setVideo, addVideos, jumpTo, audio, setPlay, scheduleSolve, selectPoint, computeBlend, toggleOutputs, setMode, showOnboarding, closeOnboarding, ready: true };
+  window.__app = { S, tuning, view, refresh, assignDisplay, setVideo, addVideos, jumpTo, audio, setPlay, scheduleSolve, selectPoint, computeBlend, toggleOutputs, setMode, showOnboarding, closeOnboarding, ready: true };
 })();
