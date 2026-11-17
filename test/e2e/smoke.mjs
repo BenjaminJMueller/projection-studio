@@ -23,6 +23,18 @@ win.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 await win.setViewportSize({ width: 1600, height: 960 }).catch(() => {});
 if (process.env.THEME) await win.emulateMedia({ colorScheme: process.env.THEME });
 await win.waitForFunction(() => window.__app?.ready && window.__app.S.model, null, { timeout: 30000 }).catch((e) => { console.error(errors); throw e; });
+// Einführung beim ersten Start
+await win.waitForSelector('#onboarding:not(.hidden) .sheet', { timeout: 10000 });
+await win.waitForTimeout(400);
+await win.screenshot({ path: path.join(outDir, '00-einfuehrung-1.png') });
+await win.click('#obNext');
+await win.waitForTimeout(300);
+await win.screenshot({ path: path.join(outDir, '00-einfuehrung-2.png') });
+await win.click('#obNext');
+await win.waitForTimeout(300);
+await win.screenshot({ path: path.join(outDir, '00-einfuehrung-3.png') });
+await win.click('#obNext');
+await win.waitForTimeout(300);
 await win.screenshot({ path: path.join(outDir, '01-start.png') });
 
 // Demo: synthetische Kalibrierung für P1 und P2 (aus bekannten Kameras erzeugt)
@@ -74,12 +86,25 @@ await win.waitForTimeout(400);
 await win.screenshot({ path: path.join(outDir, '03-projektorsicht.png') });
 await win.click('#viewMode button[data-view=orbit]');
 
+// Einrichten
+await win.click('#modes button[data-mode=setup]');
+await win.waitForTimeout(300);
+await win.screenshot({ path: path.join(outDir, '03b-einrichten.png') });
+
 // Blending berechnen
-await win.click('#rightTabs button[data-tab=blend]');
+await win.click('#modes button[data-mode=blend]');
 await win.click('#btnComputeBlend');
 await win.waitForFunction(() => Object.keys(window.__app.S.blendImages).length >= 2, null, { timeout: 60000 });
 await win.waitForTimeout(300);
 await win.screenshot({ path: path.join(outDir, '04-blending.png') });
+await win.click('#modes button[data-mode=output]');
+await win.waitForTimeout(300);
+await win.screenshot({ path: path.join(outDir, '04b-ausgabe.png') });
+await win.click('#modes button[data-mode=calibrate]');
+await win.click('#btnHelp');
+await win.waitForTimeout(250);
+await win.screenshot({ path: path.join(outDir, '04c-hilfe.png') });
+await win.click('#btnHelp');
 const blendUrl = await win.evaluate(() => window.__app.S.blendImages.P1.previewUrl);
 fs.writeFileSync(path.join(outDir, '05-maske-P1.png'), Buffer.from(blendUrl.split(',')[1], 'base64'));
 

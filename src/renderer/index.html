@@ -14,134 +14,75 @@
 </head>
 <body>
   <header class="toolbar">
-    <div class="tb-group">
-      <button class="tb" id="btnModel" data-tip="3D-Modell laden (OBJ)" aria-label="3D-Modell laden"><i data-icon="model"></i></button>
-      <button class="tb" id="btnOpen" data-tip="Projekt öffnen" aria-label="Projekt öffnen"><i data-icon="open"></i></button>
-      <button class="tb" id="btnSave" data-tip="Projekt speichern" aria-label="Projekt speichern"><i data-icon="save"></i></button>
-      <span class="tb-sep"></span>
+    <div class="tb-left">
+      <div class="doc"><span id="projectName">Neues Projekt</span><span id="docState"></span></div>
+    </div>
+
+    <div class="modes" id="modes" role="tablist" aria-label="Arbeitsschritt">
+      <button data-mode="setup" role="tab"><span class="n">1</span>Einrichten</button>
+      <button data-mode="calibrate" role="tab" class="on"><span class="n">2</span>Kalibrieren</button>
+      <button data-mode="blend" role="tab"><span class="n">3</span>Überblenden</button>
+      <button data-mode="output" role="tab"><span class="n">4</span>Ausgabe</button>
+    </div>
+
+    <div class="tb-right">
       <button class="tb" id="btnUndo" data-tip="Rückgängig" aria-label="Rückgängig"><i data-icon="undo"></i></button>
       <button class="tb" id="btnRedo" data-tip="Wiederholen" aria-label="Wiederholen"><i data-icon="redo"></i></button>
-    </div>
-    <div class="tb-title"><span id="projectName">Neues Projekt</span></div>
-    <div class="tb-group right">
-      <div class="seg" id="viewMode" role="tablist" aria-label="Ansicht">
-        <button data-view="orbit" class="on" role="tab">Raum</button>
-        <button data-view="projector" role="tab">Projektor</button>
-      </div>
       <span class="tb-sep"></span>
-      <button class="tb label" id="btnOutputs" data-tip="Vollbild auf den Projektoren ein/aus" aria-pressed="false"><i data-icon="projector"></i><span>Ausgabe</span></button>
-      <button class="tb primary" id="btnExport" data-tip="Kameras und Masken für TouchDesigner speichern"><i data-icon="export"></i><span>Exportieren</span></button>
+      <button class="tb" id="btnOpen" data-tip="Projekt öffnen" aria-label="Projekt öffnen"><i data-icon="open"></i></button>
+      <button class="tb" id="btnSave" data-tip="Projekt speichern" aria-label="Projekt speichern"><i data-icon="save"></i></button>
+      <button class="tb" id="btnHelp" data-tip="Hilfe" aria-label="Hilfe" aria-haspopup="menu"><i data-icon="help"></i></button>
+      <span class="tb-sep"></span>
+      <button class="tb label" id="btnOutputs" data-tip="Bild auf den Projektoren ein- und ausschalten" aria-pressed="false"><span class="led"></span><span>Projektoren</span></button>
     </div>
   </header>
 
   <div class="layout">
     <nav class="sidebar" aria-label="Projektoren">
-      <div class="side-section">
-        <div class="side-label">Innenring</div>
-        <div class="proj-list" id="projListInner"></div>
-      </div>
-      <div class="side-section">
-        <div class="side-label">Außenring</div>
-        <div class="proj-list" id="projListOuter"></div>
-      </div>
-
-      <div class="side-section">
-        <div class="side-label">Ausgabe</div>
-        <div id="outputSettings"></div>
-        <div class="field">
-          <span class="field-label">Testbild</span>
-          <div class="seg small" id="outputMode">
-            <button data-mode="edges" data-tip="Modellkanten">Kanten</button>
-            <button data-mode="grid" data-tip="UV-Raster">Raster</button>
-            <button data-mode="white" data-tip="Weiße Fläche, zeigt Blending und Helligkeit">Weiß</button>
-            <button data-mode="ident" data-tip="Projektornummer groß">Nr.</button>
-          </div>
-        </div>
-        <label class="switch-row"><span>Masken anwenden</span><input type="checkbox" class="switch" id="chkShowMask" /></label>
-      </div>
-
-      <div class="side-section">
-        <div class="side-label">TouchDesigner <button class="info" data-tip="Sendet jede Änderung per OSC an TouchDesigner. In TD: OSC In DAT mit osc_callbacks.py aus dem Export-Ordner." aria-label="Info"><i data-icon="info" data-size="14"></i></button></div>
-        <div id="tdSettings"></div>
-      </div>
+      <div class="side-label">Innenring</div>
+      <div class="proj-list" id="projListInner"></div>
+      <div class="side-label">Außenring</div>
+      <div class="proj-list" id="projListOuter"></div>
+      <div class="side-foot" id="overall"></div>
     </nav>
 
     <main class="stage">
-      <canvas id="view3d" aria-label="3D-Ansicht. Klick auf das Modell setzt einen Punkt."></canvas>
-      <div class="stage-tools" role="toolbar" aria-label="Darstellung">
+      <canvas id="view3d" aria-label="3D-Ansicht"></canvas>
+      <div class="stage-bar left">
+        <div class="seg dark" id="viewMode" role="tablist" aria-label="Ansicht">
+          <button data-view="orbit" class="on" role="tab" data-tip="Frei drehen">Raum</button>
+          <button data-view="projector" role="tab" data-tip="Durch den gewählten Projektor schauen">Aus Projektorsicht</button>
+        </div>
+      </div>
+      <div class="stage-bar right" role="toolbar" aria-label="Darstellung">
         <button class="tool on" id="tglCoverage" data-tip="Projektionen auf dem Modell" aria-pressed="true"><i data-icon="layers"></i></button>
         <button class="tool on" id="tglFrustums" data-tip="Projektorkegel" aria-pressed="true"><i data-icon="frustum"></i></button>
-        <button class="tool on" id="tglSnap" data-tip="An Modellecken einrasten (Alt gedrückt: frei)" aria-pressed="true"><i data-icon="magnet"></i></button>
+        <button class="tool on" id="tglSnap" data-tip="An Modellecken einrasten. Alt gedrückt halten für freie Wahl." aria-pressed="true"><i data-icon="magnet"></i></button>
         <span class="tool-sep"></span>
         <button class="tool" id="btnFocus" data-tip="Ansicht zentrieren" aria-label="Ansicht zentrieren"><i data-icon="focus"></i></button>
       </div>
-      <div id="guide" class="hud" role="status"></div>
-      <div id="hoverInfo" class="coord"></div>
+      <div id="guide" class="coach" role="status"></div>
     </main>
 
     <aside class="inspector" aria-label="Inspektor">
-      <div class="preview-wrap" id="previewWrap">
-        <canvas id="preview3d"></canvas>
-        <canvas id="preview2d" aria-label="Projektorbild. Ziehen verschiebt den gewählten Punkt."></canvas>
+      <div class="preview-block">
+        <div class="preview-wrap" id="previewWrap">
+          <canvas id="preview3d"></canvas>
+          <canvas id="preview2d" aria-label="Projektorbild"></canvas>
+        </div>
+        <div class="preview-caption" id="previewCaption"></div>
       </div>
-      <div class="preview-caption" id="previewCaption"></div>
-
-      <div class="seg full" id="rightTabs" role="tablist">
-        <button data-tab="points" class="on" role="tab">Punkte</button>
-        <button data-tab="projector" role="tab">Projektor</button>
-        <button data-tab="masks" role="tab">Masken</button>
-        <button data-tab="blend" role="tab">Blending</button>
+      <div class="panes">
+        <section class="pane" data-pane="setup" id="paneSetup"></section>
+        <section class="pane" data-pane="calibrate" id="paneCalibrate"></section>
+        <section class="pane" data-pane="blend" id="paneBlend"></section>
+        <section class="pane" data-pane="output" id="paneOutput"></section>
       </div>
-
-      <section class="tab-body" data-tab="points">
-        <div id="quality" class="summary"></div>
-        <div id="warnings" class="notes"></div>
-        <div class="list-head">
-          <span>Punktpaare</span>
-          <div class="row-actions">
-            <button class="icon-btn" id="btnRepick" data-tip="3D-Position des gewählten Punkts neu wählen" aria-label="3D-Position neu wählen"><i data-icon="target"></i></button>
-            <button class="icon-btn" id="btnDeletePoint" data-tip="Gewählten Punkt löschen (Entf)" aria-label="Punkt löschen"><i data-icon="trash"></i></button>
-          </div>
-        </div>
-        <table class="points">
-          <thead><tr><th class="c-id">Nr.</th><th>Modell</th><th class="num">Bild (px)</th><th class="num">Fehler</th><th class="c-on"></th></tr></thead>
-          <tbody id="pointRows"></tbody>
-        </table>
-        <button class="link danger" id="btnClearPoints">Alle Punkte löschen</button>
-      </section>
-
-      <section class="tab-body hidden" data-tab="projector">
-        <div id="projSettings" class="form"></div>
-      </section>
-
-      <section class="tab-body hidden" data-tab="masks">
-        <div class="list-head">
-          <span>Eigene Masken <button class="info" data-tip="Im Projektorbild oben klicken, um Eckpunkte zu setzen. Klick auf den ersten Punkt, Doppelklick oder Enter schließt die Form. Eckpunkte lassen sich ziehen." aria-label="Info"><i data-icon="info" data-size="14"></i></button></span>
-          <div class="row-actions">
-            <button class="icon-btn" id="btnNewMask" data-tip="Neue Maske" aria-label="Neue Maske"><i data-icon="plus"></i></button>
-            <button class="icon-btn" id="btnDeleteMask" data-tip="Maske löschen" aria-label="Maske löschen"><i data-icon="trash"></i></button>
-          </div>
-        </div>
-        <div id="maskList" class="plain-list"></div>
-        <div id="maskProps" class="form"></div>
-      </section>
-
-      <section class="tab-body hidden" data-tab="blend">
-        <div id="blendSettings" class="form"></div>
-        <div class="actions">
-          <button class="btn" id="btnComputeBlend"><i data-icon="refresh"></i><span>Masken berechnen</span></button>
-          <span class="muted small" id="blendStatus"></span>
-        </div>
-      </section>
     </aside>
   </div>
 
-  <footer class="statusbar">
-    <span class="keys"><kbd>Klick</kbd> Punkt setzen <kbd>← ↑ → ↓</kbd> verschieben <kbd>⇧</kbd> ×10 <kbd>Tab</kbd> nächster Punkt <kbd>1–8</kbd> Projektor</span>
-    <span class="spacer"></span>
-    <span id="statusText"></span>
-  </footer>
-
+  <div id="helpMenu" class="popover hidden" role="menu"></div>
+  <div id="onboarding" class="sheet-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="obTitle"></div>
   <div id="tooltip" class="tooltip" role="tooltip"></div>
   <div id="toast" class="toast" role="status"></div>
   <script type="module" src="app.js"></script>

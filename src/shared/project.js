@@ -67,6 +67,6 @@ export function migrateProject(p) {
   out.blend = { ...base.blend, ...(p.blend || {}) };
   out.view = { ...base.view, ...(p.view || {}) };
   out.td = { ...base.td, ...(p.td || {}) };
-  out.projectors = (p.projectors || base.projectors).map((pj, i) => ({ ...base.projectors[i % 8], ...pj }));
+  out.projectors = (p.projectors || base.projectors).map((pj, i) => ({ ...base.projectors[i % 8], ...pj, color: base.projectors[i % 8].color }));
   return out;
 }

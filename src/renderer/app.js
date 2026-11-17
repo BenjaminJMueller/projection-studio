@@ -38,6 +38,9 @@ const S = {
   openOutputs: new Set(),
   blendImages: {}, // projectorId -> { url, canvas }
   dirty: false,
+  mode: 'calibrate',
+  ui: {},
+  blendStatus: '',
 };
 const undoStack = [], redoStack = [];
 
@@ -119,9 +122,7 @@ worker.onmessage = (e) => {
 // ------------------------------------------------------------------ Ansichten
 const view = new View3D($('#view3d'), {
   onPick: (world, snapped) => onModelPick(world, snapped),
-  onHover: (hit) => {
-    $('#hoverInfo').textContent = hit ? `${hit.snapped ? '◆ Ecke' : '· Fläche'}  ${hit.point.map((v) => v.toFixed(3)).join(', ')}` : '';
-  },
+  onHover: () => {},
 });
 const preview = new Preview($('#preview3d'), $('#preview2d'), {
   onImagePoint: (u, v, phase) => {
@@ -145,13 +146,14 @@ const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 function onModelPick(world, snapped) {
   if (!S.model) return;
   const p = active();
+  if (S.mode !== 'calibrate' && !S.pickCenter) return;
   if (S.pickCenter) {
     pushUndo();
     p.centerHint = { world };
     S.pickCenter = false;
     if (p.points.length) scheduleSolve(p);
     markDirty();
-    toast(`Bildmitte für ${p.name} gesetzt`);
+    toast(`Bildmitte für ${displayName(p)} gesetzt`);
     return refresh();
   }
   if (S.pendingRepick && activePoint()) {
@@ -257,6 +259,24 @@ function onMaskPointer(uv, phase, e) {
   }
 }
 
+// ------------------------------------------------------------------ Arbeitsschritte
+const MODES = ['setup', 'calibrate', 'blend', 'output'];
+function setMode(m) {
+  if (!MODES.includes(m)) m = 'calibrate';
+  S.mode = m;
+  try { localStorage.setItem('kalib.mode', m); } catch { /* egal */ }
+  for (const x of MODES) document.body.classList.toggle(`mode-${x}`, x === m);
+  document.querySelectorAll('#modes button').forEach((b) => { b.classList.toggle('on', b.dataset.mode === m); b.setAttribute('aria-selected', String(b.dataset.mode === m)); });
+  if (m !== 'calibrate') { S.pendingRepick = false; S.pickCenter = false; }
+  if (m !== 'blend') S.activeMaskId = null;
+  refresh();
+}
+function previewMode() {
+  if (S.mode === 'blend') return S.activeMaskId ? 'masks' : 'blend';
+  if (S.mode === 'output') return Object.keys(S.blendImages).length ? 'blend' : 'points';
+  return 'points';
+}
+
 // ------------------------------------------------------------------ UI-Rendering
 let refreshQueued = false, lightOnly = true;
 function refresh(light = false) {
@@ -269,17 +289,18 @@ function refresh(light = false) {
     lightOnly = true;
     if (!l) {
       renderProjList();
-      renderSettings();
-      renderOutputs();
-      renderMaskTab();
-      renderBlendTab();
-      renderTdSettings();
+      renderSetup();
+      renderBlend();
+      renderOutput();
+      renderModes();
     }
-    renderPointsTab();
+    renderCalibrate();
     renderGuide();
-    view.update(S.project, S.activeId, S.activePointId, S.pendingRepick, S.results[S.activeId]?.candidates);
-    preview.set(active(), S.activePointId, { suggest: S.results[S.activeId]?.suggest, activeMaskId: S.activeMaskId, blendImg: blendImgFor(S.activeId) });
-    $('#previewCaption').replaceChildren(el('span', {}, el('b', {}, active().name), `  ${outputLabel(active())}`), el('span', {}, `${active().resolution[0]} × ${active().resolution[1]}`));
+    renderDocState();
+    view.update(S.project, S.activeId, S.activePointId, S.pendingRepick, S.mode === 'calibrate' ? S.results[S.activeId]?.candidates : null);
+    preview.mode = previewMode();
+    preview.set(active(), S.activePointId, { suggest: S.mode === 'calibrate' ? S.results[S.activeId]?.suggest : null, activeMaskId: S.activeMaskId, blendImg: blendImgFor(S.activeId) });
+    $('#previewCaption').replaceChildren(el('span', {}, el('b', {}, displayName(active())), outputLabel(active())), el('span', {}, `${active().resolution[0]} × ${active().resolution[1]}`));
     $('#btnUndo').disabled = !undoStack.length;
     $('#btnRedo').disabled = !redoStack.length;
     broadcast();
@@ -302,225 +323,365 @@ function blendImgFor(id) {
 
 const nf = (n, d = 1, group = false) => Number(n).toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: d, useGrouping: group });
 const QUAD_SHORT = ['oben links', 'oben rechts', 'unten links', 'unten rechts'];
+const indexOf = (p) => S.project.projectors.indexOf(p);
+const displayName = (p) => (/^P\d+$/.test(p.name) ? `Projektor ${p.name.slice(1)}` : p.name);
+const enabledPoints = (p) => p.points.filter((x) => x.enabled && x.world && x.image).length;
+const QUALITY_TEXT = { 'sehr gut': 'Sitzt sehr gut', gut: 'Sitzt gut', 'vorläufig': 'Erste Lösung', unsicher: 'Noch unsicher' };
+const isGood = (q) => q === 'sehr gut' || q === 'gut';
 
 function outputLabel(p) {
   const o = S.project.outputs.find((x) => x.id === p.output);
   if (!o) return 'Kein Ausgang';
-  return o.layout === '2x2' ? `${o.name} · ${QUAD_SHORT[p.quadrant]}` : o.name;
+  return o.layout === '2x2' ? `${o.name} · ${QUAD_SHORT[p.quadrant]}` : o.layout === '1x2' ? `${o.name} · ${p.quadrant % 2 ? 'rechts' : 'links'}` : o.name;
 }
 
-function statusOf(p) {
-  const n = p.points.filter((x) => x.enabled && x.world && x.image).length;
-  const r = S.results[p.id];
-  if (!p.solution) return { color: null, text: n ? `${n}/4` : '' };
-  const q = r?.quality;
-  const color = q === 'sehr gut' || q === 'gut' ? 'var(--ok)' : 'var(--warn)';
-  return { color, text: `${nf(p.solution.rms)} px` };
-}
-
-function projRow(p, i) {
-  const st = statusOf(p);
-  return el('div', { class: `proj-row ${p.id === S.activeId ? 'active' : ''} ${p.enabled ? '' : 'disabled'}`, onclick: () => selectProjector(p.id), 'data-tip': `Taste ${i + 1}`, role: 'button', tabindex: 0 },
-    el('span', { class: 'dot', style: `background:${p.color}` }),
-    el('span', { class: 't' }, el('span', { class: 'name' }, p.name), el('span', { class: 'sub' }, outputLabel(p))),
-    el('span', { class: 'val' }, st.text, st.color ? el('i', { style: `background:${st.color}` }) : null));
-}
-
-function renderProjList() {
-  const ps = S.project.projectors;
-  $('#projListInner').replaceChildren(...ps.map((p, i) => [p, i]).filter(([p]) => p.ring !== 'außen').map(([p, i]) => projRow(p, i)));
-  $('#projListOuter').replaceChildren(...ps.map((p, i) => [p, i]).filter(([p]) => p.ring === 'außen').map(([p, i]) => projRow(p, i)));
-}
-
+// kleine Bausteine
+const put = (sel, ...kids) => $(sel).replaceChildren(...kids.flat().filter((k) => k != null && k !== false));
 function infoBtn(tip) {
   const b = el('button', { class: 'info', 'data-tip': tip, 'aria-label': 'Info', type: 'button' });
   b.innerHTML = icon('info', 14);
   return b;
 }
-function row(label, control, tip) {
-  return el('div', { class: 'row' }, el('label', {}, label, tip ? infoBtn(tip) : null), control);
+const ic = (name, size = 16) => el('span', { html: icon(name, size), style: 'display:contents' });
+/** Zeile in einer Gruppe: Beschriftung links, Bedienelement rechts. */
+function r(label, control, { sub, tip, cls = '' } = {}) {
+  const sw = control?.classList?.contains('switch');
+  return el('div', { class: `r ${sw ? 'sw' : ''} ${cls}` },
+    el('div', { class: 'lbl' }, el('span', {}, label, sub ? el('span', { class: 'sub' }, sub) : null), tip ? infoBtn(tip) : null),
+    el('div', { class: 'ctl' }, control));
 }
-function select(options, value, onchange) {
-  return el('select', { onchange: (e) => onchange(e.target.value) }, ...options.map(([v, l]) => el('option', { value: v, selected: String(v) === String(value) }, l)));
+const group = (...rows) => el('div', { class: 'group' }, ...rows.flat().filter(Boolean));
+const gtitle = (text, ...actions) => el('div', { class: 'g-title' }, el('span', {}, text), actions.length ? el('div', { class: 'actions' }, ...actions) : null);
+function iconBtn(name, tip, onclick, { disabled = false, on = false, id } = {}) {
+  return el('button', { class: `icon-btn ${on ? 'on' : ''}`, 'data-tip': tip, 'aria-label': tip, onclick, disabled, id, html: icon(name) });
+}
+function select(options, value, onchange, attrs = {}) {
+  return el('select', { ...attrs, onchange: (e) => onchange(e.target.value) }, ...options.map(([v, l]) => el('option', { value: v, selected: String(v) === String(value) }, l)));
 }
 function input(value, onchange, type = 'text', attrs = {}) {
   return el('input', { type, value, ...attrs, onchange: (e) => onchange(type === 'number' ? Number(e.target.value) : e.target.value) });
 }
 function rangeCtl(value, min, max, step, fmt, oninput, onchange) {
   const out = el('output', {}, fmt(value));
-  const r = el('input', { type: 'range', min, max, step, value, oninput: (e) => { out.textContent = fmt(Number(e.target.value)); oninput?.(Number(e.target.value)); }, onchange: (e) => onchange(Number(e.target.value)) });
-  return el('div', { class: 'range' }, r, out);
+  const rg = el('input', { type: 'range', min, max, step, value, oninput: (e) => { out.textContent = fmt(Number(e.target.value)); oninput?.(Number(e.target.value)); }, onchange: (e) => onchange(Number(e.target.value)) });
+  return el('div', { class: 'range' }, rg, out);
 }
-function switchCtl(checked, onchange) {
-  return el('input', { type: 'checkbox', class: 'switch', checked, onchange: (e) => onchange(e.target.checked) });
+function switchCtl(checked, onchange, attrs = {}) {
+  return el('input', { type: 'checkbox', class: 'switch', checked, ...attrs, onchange: (e) => onchange(e.target.checked) });
+}
+/** Aufklappbereich, merkt sich offen/zu. */
+function more(key, label, ...content) {
+  S.ui ||= {};
+  const d = el('details', { class: 'more', open: !!S.ui[key] },
+    el('summary', {}, ic('chevron', 14), label), ...content);
+  d.addEventListener('toggle', () => { S.ui[key] = d.open; });
+  return d;
 }
 
-function renderSettings() {
+// ---------- Seitenleiste
+function statusOf(p) {
+  const n = enabledPoints(p);
+  const q = S.results[p.id]?.quality;
+  if (!p.enabled) return { cls: '', node: 'aus' };
+  if (p.solution && isGood(q)) return { cls: 'ok', node: ic('checkCircle', 16), tip: `Kalibriert, ${nf(p.solution.rms)} px Abweichung` };
+  if (p.solution) return { cls: 'warn', node: ic('alert', 16), tip: QUALITY_TEXT[q] || 'Unsicher' };
+  return { cls: '', node: n ? `${n} / 4` : '' };
+}
+
+function projRow(p) {
+  const i = indexOf(p);
+  const st = statusOf(p);
+  return el('div', { class: `proj-row ${p.id === S.activeId ? 'active' : ''} ${p.enabled ? '' : 'disabled'}`, onclick: () => selectProjector(p.id), role: 'button', tabindex: 0, 'aria-label': displayName(p) },
+    el('span', { class: 'badge', style: `background:${p.color}` }, String(i + 1)),
+    el('span', { class: 't' }, el('span', { class: 'name' }, displayName(p)), el('span', { class: 'sub' }, outputLabel(p))),
+    el('span', { class: `st ${st.cls}`, 'data-tip': st.tip }, st.node));
+}
+
+function renderProjList() {
+  const ps = S.project.projectors;
+  $('#projListInner').replaceChildren(...ps.filter((p) => p.ring !== 'außen').map(projRow));
+  $('#projListOuter').replaceChildren(...ps.filter((p) => p.ring === 'außen').map(projRow));
+  const on = ps.filter((p) => p.enabled);
+  const done = on.filter((p) => p.solution && isGood(S.results[p.id]?.quality)).length;
+  $('#overall').replaceChildren(el('div', {}, `${done} von ${on.length} kalibriert`), el('div', { class: 'progress' }, el('i', { style: `width:${on.length ? (100 * done) / on.length : 0}%` })));
+}
+
+function renderModes() {
+  const ps = S.project.projectors.filter((p) => p.enabled);
+  const done = {
+    setup: !!S.model && S.project.outputs.some((o) => o.displayId != null),
+    calibrate: ps.length > 0 && ps.every((p) => p.solution && isGood(S.results[p.id]?.quality)),
+    blend: Object.keys(S.blendImages).length > 0,
+    output: false,
+  };
+  document.querySelectorAll('#modes button').forEach((b) => b.classList.toggle('done', done[b.dataset.mode] && !b.classList.contains('on')));
+}
+
+function renderDocState() {
+  $('#projectName').textContent = S.project.name;
+  $('#docState').textContent = S.dirty ? (S.projectPath ? 'Bearbeitet' : 'Automatisch gesichert') : S.projectPath ? 'Gespeichert' : '';
+}
+
+// ---------- 1 Einrichten
+function quadDiagram(o) {
+  const ps = S.project.projectors.filter((p) => p.output === o.id);
+  const n = o.layout === '2x2' ? 4 : o.layout === '1x2' ? 2 : 1;
+  const cells = Array.from({ length: n }, (_, q) => {
+    const p = ps.find((x) => (n === 1 ? true : x.quadrant % n === q));
+    return el('span', { style: p ? `background:${p.color}` : 'background:var(--bg-select)' }, p ? String(indexOf(p) + 1) : '');
+  });
+  return el('div', { class: `quad l${o.layout}` }, ...cells);
+}
+
+function outputRows() {
+  const opts = [['', 'Kein Bildschirm'], ...S.displays.map((d) => [d.id, `${d.label} · ${d.pixelSize.width} × ${d.pixelSize.height}`])];
+  return S.project.outputs.map((o) => {
+    const ps = S.project.projectors.filter((p) => p.output === o.id).map((p) => indexOf(p) + 1);
+    return el('div', { class: 'r stack' },
+      el('div', { class: 'lbl', style: 'gap:10px' }, quadDiagram(o), el('span', {}, o.name, el('span', { class: 'sub' }, ps.length ? `Projektor ${ps[0]} bis ${ps[ps.length - 1]}` : 'nicht belegt'))),
+      el('div', { class: 'ctl' },
+        select(opts, o.displayId ?? '', async (v) => {
+          const old = o.displayId;
+          o.displayId = v ? Number(v) : null;
+          markDirty();
+          if (S.openOutputs.size) {
+            if (old != null) await api.closeOutput(old);
+            if (o.displayId != null) await api.openOutput(o.displayId, o.id);
+            await syncOpenOutputs();
+          }
+          refresh();
+        }, { 'aria-label': `Bildschirm für ${o.name}` }),
+        select([['2x2', '2 × 2'], ['1x2', '1 × 2'], ['1x1', 'Ganz']], o.layout, (v) => { o.layout = v; markDirty(); refresh(); }, { style: 'width:76px;flex:none', 'aria-label': 'Aufteilung', 'data-tip': 'Aufteilung des Bildschirms auf Projektoren' })));
+  });
+}
+
+function modelRow() {
+  const m = S.model;
+  return el('div', { class: 'r sw' },
+    el('div', { class: 'lbl', style: 'gap:10px' }, ic('model', 20),
+      el('span', { style: 'overflow:hidden' }, el('span', { style: 'display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis', 'data-tip': S.project.model.name || '' }, S.project.model.name || 'Kein Modell'), el('span', { class: 'sub' }, m ? `${nf(m.triangles, 0, true)} Dreiecke · ${nf(m.featureVertices.length / 3, 0, true)} Ecken` : 'OBJ-Datei wählen'))),
+    el('div', { class: 'ctl' }, el('button', { class: 'btn', onclick: chooseModel }, m ? 'Ändern …' : 'Wählen …')));
+}
+
+function renderSetup() {
   const p = active();
   const lens = getLensPreset(p.lens);
   const o = S.project.outputs.find((x) => x.id === p.output);
-  const s = p.solution;
-  $('#projSettings').replaceChildren(
-    row('Name', input(p.name, (v) => { p.name = v; markDirty(); refresh(); })),
-    row('Aktiv', switchCtl(p.enabled, (v) => { p.enabled = v; markDirty(); refresh(); })),
-    el('div', { class: 'sep' }),
-    row('Ausgang', select([...S.project.outputs.map((x) => [x.id, x.name]), ['', 'Keiner']], p.output, (v) => { p.output = v; markDirty(); refresh(); })),
-    o && o.layout !== '1x1' ? row('Bereich', select((o.layout === '2x2' ? QUAD_SHORT : ['links', 'rechts']).map((n, i) => [i, n]), p.quadrant, (v) => { p.quadrant = Number(v); markDirty(); refresh(); })) : null,
-    row('Auflösung', select([['1920x1080', '1920 × 1080'], ['1280x800', '1280 × 800'], ['1280x720', '1280 × 720'], ['3840x2160', '3840 × 2160']], p.resolution.join('x'), (v) => {
-      pushUndo();
-      const [w, h] = v.split('x').map(Number);
-      const sx = w / p.resolution[0], sy = h / p.resolution[1];
-      for (const pt of p.points) if (pt.image) pt.image = [pt.image[0] * sx, pt.image[1] * sy];
-      p.resolution = [w, h];
-      p.solution = null;
-      scheduleSolve(p);
-      markDirty(); refresh();
-    }), 'Auflösung des Signals, das der Beamer bekommt, nicht die native Panelauflösung'),
-    el('div', { class: 'sep' }),
-    row('Objektiv', select(LENS_PRESETS.map((l) => [l.id, l.name]), p.lens, (v) => { p.lens = v; scheduleSolve(p); markDirty(); refresh(); }), lens.note),
-    row('Montage', select([['auto', 'Automatisch'], ['normal', 'Achse unter dem Bild'], ['flipped', 'Achse über dem Bild']], p.mountMode, (v) => { p.mountMode = v; scheduleSolve(p); markDirty(); refresh(); }),
-      'Kurzdistanz-Beamer projizieren komplett auf eine Seite der Objektivachse. Je nach Menü-Einstellung (Decke/Tisch) liegt sie über oder unter dem Bild. Automatisch prüft beides.'),
-    el('div', { class: 'sep' }),
-    row('Bildmitte', el('div', { style: 'display:flex;gap:8px;align-items:center' },
-      el('button', { class: `btn ${S.pickCenter ? 'on' : ''}`, onclick: () => { S.pickCenter = !S.pickCenter; refresh(); } }, S.pickCenter ? 'Im Modell klicken …' : p.centerHint ? 'Neu wählen' : 'Im Modell wählen'),
-      p.centerHint ? el('button', { class: 'link', onclick: () => { pushUndo(); p.centerHint = null; scheduleSolve(p); markDirty(); refresh(); } }, 'Entfernen') : null),
-      'Wo ungefähr liegt die Mitte des Beamerbildes an der Decke? Ein Klick ins Modell genügt. Hilft dem Solver bei wenigen oder eng liegenden Punkten.'),
-    el('div', { class: 'sep' }),
-    row('TD-Kamera', input(p.tdCamera, (v) => { p.tdCamera = v; markDirty(); }), 'Name des Camera COMP in TouchDesigner'),
-    row('TD-Render', input(p.tdRender, (v) => { p.tdRender = v; markDirty(); }), 'Name des Render TOP, hinter den die Maske gehängt wird'),
-    s ? el('div', { class: 'readout' },
-      `Wurfverhältnis ${nf(s.throwRatio, 3)}`, el('br'),
-      `Achse bei ${nf((s.cy / p.resolution[1]) * 100, 0)} % Bildhöhe`, el('br'),
-      `Position ${s.center.map((v) => nf(v, 2)).join(' / ')}`) : null,
+  const set = (fn, solve = false) => { fn(); if (solve) scheduleSolve(p); markDirty(); refresh(); };
+  put('#paneSetup', 
+    gtitle('3D-Modell'),
+    group(modelRow()),
+    gtitle('Bildschirme', infoBtn('Jeder Ausgang der Grafikkarte wird in Viertel geteilt, jedes Viertel geht an einen Projektor.')),
+    group(outputRows()),
+    gtitle(displayName(p)),
+    group(
+      r('Name', input(displayName(p), (v) => set(() => { p.name = v.trim() || `P${indexOf(p) + 1}`; }))),
+      r('Verwenden', switchCtl(p.enabled, (v) => set(() => { p.enabled = v; }))),
+      r('Ausgang', select([...S.project.outputs.map((x) => [x.id, x.name]), ['', 'Keiner']], p.output, (v) => set(() => { p.output = v; }))),
+      o && o.layout !== '1x1' ? r('Bildbereich', select((o.layout === '2x2' ? QUAD_SHORT : ['links', 'rechts']).map((n, i) => [i, n]), p.quadrant, (v) => set(() => { p.quadrant = Number(v); }))) : null,
+      r('Auflösung', select([['1920x1080', '1920 × 1080'], ['1280x800', '1280 × 800'], ['1280x720', '1280 × 720'], ['3840x2160', '3840 × 2160']], p.resolution.join('x'), (v) => {
+        pushUndo();
+        const [w, h] = v.split('x').map(Number);
+        const sx = w / p.resolution[0], sy = h / p.resolution[1];
+        for (const pt of p.points) if (pt.image) pt.image = [pt.image[0] * sx, pt.image[1] * sy];
+        p.resolution = [w, h];
+        p.solution = null;
+        set(() => {}, true);
+      }), { tip: 'Auflösung des Signals, das der Beamer bekommt, nicht die native Panelauflösung.' }),
+    ),
+    group(
+      r('Objektiv', select(LENS_PRESETS.map((l) => [l.id, l.name]), p.lens, (v) => set(() => { p.lens = v; }, true)), { tip: lens.note }),
+      r('Montage', select([['auto', 'Automatisch'], ['normal', 'Achse unter dem Bild'], ['flipped', 'Achse über dem Bild']], p.mountMode, (v) => set(() => { p.mountMode = v; }, true)),
+        { tip: 'Kurzdistanz-Beamer projizieren komplett auf eine Seite der Objektivachse. Je nach Menü-Einstellung (Decke/Tisch) liegt sie über oder unter dem Bild. Automatisch prüft beides.' }),
+    ),
+    more('setupAdv', 'TouchDesigner-Namen',
+      group(
+        r('Kamera', input(p.tdCamera, (v) => { p.tdCamera = v; markDirty(); }), { tip: 'Name des Camera COMP in TouchDesigner' }),
+        r('Render', input(p.tdRender, (v) => { p.tdRender = v; markDirty(); }), { tip: 'Name des Render TOP, hinter den die Maske gehängt wird' }),
+      )),
   );
 }
 
-function renderOutputs() {
-  const opts = [['', 'Kein Bildschirm'], ...S.displays.map((d) => [d.id, `${d.label} (${d.pixelSize.width}×${d.pixelSize.height})`])];
-  $('#outputSettings').replaceChildren(...S.project.outputs.map((o) =>
-    el('div', { class: 'out-row' },
-      el('span', {}, o.name),
-      select(opts, o.displayId ?? '', async (v) => {
-        const old = o.displayId;
-        o.displayId = v ? Number(v) : null;
-        markDirty();
-        if (S.openOutputs.size) {
-          if (old != null) await api.closeOutput(old);
-          if (o.displayId != null) await api.openOutput(o.displayId, o.id);
-          await syncOpenOutputs();
-        }
-        refresh();
-      }),
-      select([['2x2', '2×2'], ['1x2', '1×2'], ['1x1', '1×1']], o.layout, (v) => { o.layout = v; markDirty(); refresh(); }))));
-  document.querySelectorAll('#outputMode button').forEach((b) => b.classList.toggle('on', b.dataset.mode === S.project.view.outputMode));
-  $('#chkShowMask').checked = S.project.view.showMask;
-  const btn = $('#btnOutputs');
-  btn.classList.toggle('on', S.openOutputs.size > 0);
-  btn.setAttribute('aria-pressed', String(S.openOutputs.size > 0));
-}
-
+// ---------- 2 Kalibrieren
 function errClass(e) { return e < 3 ? 'e-ok' : e < 8 ? 'e-warn' : 'e-bad'; }
 
-function renderPointsTab() {
+function statusCard(p) {
+  const s = p.solution;
+  const res = S.results[p.id] || {};
+  const n = enabledPoints(p);
+  let cls = '', head, sub, mark;
+  if (s) {
+    const good = isGood(res.quality);
+    cls = good ? 'ok' : 'warn';
+    mark = ic(good ? 'check' : 'alert', 16);
+    head = QUALITY_TEXT[res.quality] || 'Berechnet';
+    sub = `Abweichung ${nf(s.rms)} px · Position ± ${nf(s.sigmaCenter * 100, 0)} cm`;
+  } else if (n >= 4) {
+    mark = String(n); head = 'Rechnet …'; sub = res.message || '';
+  } else {
+    mark = String(n);
+    head = n ? `Noch ${4 - n} ${4 - n === 1 ? 'Punkt' : 'Punkte'}` : 'Noch keine Punkte';
+    sub = 'Ab 4 Punkten steht die Position, 6 gut verteilte sind ideal.';
+  }
+  const notes = (res.warnings || []).filter((w) => !(w.level === 'info' && /Vorläufige/.test(w.text)));
+  return el('div', { class: `status ${cls}` },
+    el('div', { class: 'head' }, el('div', { class: 'ic-wrap' }, mark), el('div', {}, el('b', {}, head), el('span', {}, sub))),
+    el('div', { class: 'steps', 'aria-hidden': 'true' }, ...Array.from({ length: 6 }, (_, i) => el('i', { class: i < n ? 'done' : '' }))),
+    notes.length ? el('div', { class: 'notes' }, ...notes.map((w) => el('div', {}, w.level === 'warn' ? ic('alert', 14) : null, el('span', {}, w.text)))) : null);
+}
+
+function renderCalibrate() {
   const p = active();
   const s = p.solution;
-  const r = S.results[p.id] || {};
-  const n = p.points.filter((x) => x.enabled && x.world && x.image).length;
-  const q = $('#quality');
-  if (s) {
-    const good = r.quality === 'sehr gut' || r.quality === 'gut';
-    q.className = 'summary';
-    q.replaceChildren(
-      el('div', { class: 'state' }, el('i', { style: `background:${good ? 'var(--ok)' : 'var(--warn)'}` }), `Kalibrierung ${r.quality || ''}`),
-      cell(`${nf(s.rms, 2)} px`, 'Mittl. Fehler'),
-      cell(`± ${nf(s.sigmaCenter * 100, 1)} cm`, 'Position'),
-      cell(String(n), 'Punkte'),
-      cell(`${nf(s.coverage * 100, 0)} %`, 'Abdeckung'));
-  } else {
-    q.className = 'summary empty';
-    q.textContent = n < 4 ? `Noch ${4 - n} ${4 - n === 1 ? 'Punkt' : 'Punkte'} bis zur ersten Lösung` : r.message || 'Rechne …';
-  }
-  $('#warnings').replaceChildren(...(r.warnings || []).filter((w) => !(w.level === 'info' && /Vorläufige/.test(w.text))).map((w) => el('div', { class: w.level }, w.text)));
   const errs = new Map((s?.errors || []).map((e) => [e.id, e.error]));
-  $('#pointRows').replaceChildren(...p.points.map((pt) => {
+  const rows = p.points.map((pt) => {
     const e = errs.get(pt.id);
-    return el('tr', { class: `${pt.id === S.activePointId ? 'active' : ''} ${pt.enabled ? '' : 'disabled'}`, onclick: () => selectPoint(pt.id) },
-      el('td', { class: 'c-id' }, String(pt.id)),
-      el('td', { class: 'model', title: pt.world ? pt.world.map((v) => nf(v, 3)).join('  ') : '' }, pt.world ? pt.world.map((v) => nf(v, 2)).join('  ') : '–'),
-      el('td', { class: 'num' }, pt.image ? pt.image.map((v) => nf(v, 0)).join('  ') : '–'),
-      el('td', { class: `num ${e != null && pt.enabled ? errClass(e) : ''}` }, e != null ? nf(e, 1) : ''),
-      el('td', { class: 'c-on' }, el('input', { type: 'checkbox', 'aria-label': 'Punkt verwenden', title: 'Punkt verwenden', checked: pt.enabled, onclick: (ev) => ev.stopPropagation(), onchange: (ev) => { pushUndo(); pt.enabled = ev.target.checked; scheduleSolve(p); markDirty(); refresh(); } })));
-  }));
-  $('#btnDeletePoint').disabled = !activePoint();
-  $('#btnRepick').disabled = !activePoint();
-  $('#btnRepick').classList.toggle('on', S.pendingRepick);
-  $('#btnClearPoints').classList.toggle('hidden', !p.points.length);
+    return el('div', { class: `r ${pt.id === S.activePointId ? 'active' : ''} ${pt.enabled ? '' : 'off'}`, onclick: () => selectPoint(pt.id) },
+      el('span', { class: 'pid' }, String(pt.id)),
+      el('span', { class: 'nm' }, `Punkt ${pt.id}`, pt.snapped ? null : el('span', { class: 'sub' }, 'Freie Stelle, nicht eingerastet')),
+      el('span', { class: 'err' }, e != null && pt.enabled ? [el('i', { class: errClass(e) }), `${nf(e)} px`] : ''),
+      el('input', { type: 'checkbox', 'aria-label': 'Punkt verwenden', 'data-tip': 'Punkt verwenden', checked: pt.enabled, onclick: (ev) => ev.stopPropagation(), onchange: (ev) => { pushUndo(); pt.enabled = ev.target.checked; scheduleSolve(p); markDirty(); refresh(); } }));
+  });
+  put('#paneCalibrate', 
+    statusCard(p),
+    gtitle('Punkte',
+      iconBtn('target', 'Gewählten Punkt im Modell neu setzen', () => { S.pendingRepick = !S.pendingRepick; refresh(); }, { disabled: !activePoint(), on: S.pendingRepick, id: 'btnRepick' }),
+      iconBtn('trash', 'Gewählten Punkt löschen (Entf)', deleteActivePoint, { disabled: !activePoint(), id: 'btnDeletePoint' })),
+    rows.length ? el('div', { class: 'group plist' }, ...rows) : group(el('div', { class: 'empty-note' }, 'Klicke im 3D-Modell auf eine Ecke, um den ersten Punkt zu setzen.')),
+    p.points.length ? el('div', { style: 'padding:6px 4px 0' }, el('button', { class: 'link danger', id: 'btnClearPoints', onclick: clearPoints }, 'Alle Punkte löschen')) : null,
+    more('calDetails', 'Details und Hilfen',
+      s ? group(
+        r('Mittlerer Fehler', el('span', { class: 'muted' }, `${nf(s.rms, 2)} px`)),
+        r('Positionsgenauigkeit', el('span', { class: 'muted' }, `± ${nf(s.sigmaCenter * 100, 1)} cm`)),
+        r('Bildabdeckung', el('span', { class: 'muted' }, `${nf(s.coverage * 100, 0)} %`), { tip: 'Wie weit die Punkte über das Projektorbild verteilt sind. Über 50 % ist gut.' }),
+        r('Wurfverhältnis', el('span', { class: 'muted' }, nf(s.throwRatio, 3))),
+        r('Objektivachse', el('span', { class: 'muted' }, `${nf((s.cy / p.resolution[1]) * 100, 0)} % Bildhöhe`)),
+      ) : null,
+      el('div', { style: 'height:8px' }),
+      group(r('Bildmitte vorgeben',
+        el('div', { style: 'display:flex;gap:10px;align-items:center' },
+          p.centerHint ? el('button', { class: 'link quiet', onclick: () => { pushUndo(); p.centerHint = null; scheduleSolve(p); markDirty(); refresh(); } }, 'Entfernen') : null,
+          el('button', { class: `btn ${S.pickCenter ? 'on' : ''}`, onclick: () => { S.pickCenter = !S.pickCenter; refresh(); } }, S.pickCenter ? 'Im Modell klicken' : p.centerHint ? 'Neu wählen' : 'Wählen')),
+        { tip: 'Wo ungefähr liegt die Mitte des Beamerbildes an der Decke? Ein Klick ins Modell genügt. Hilft bei wenigen oder eng liegenden Punkten.' })),
+    ),
+  );
 }
-const cell = (v, l) => el('div', { class: 'cell' }, el('div', { class: 'v' }, v), el('div', { class: 'l' }, l));
+
+function coach(num, title, text, ok = false) {
+  $('#guide').replaceChildren(el('span', { class: `num ${ok ? 'ok' : ''}` }, num), el('span', { class: 't' }, el('b', {}, title), text ? el('span', {}, text) : null));
+}
 
 function renderGuide() {
   const g = $('#guide');
   const p = active();
-  const n = p.points.filter((x) => x.enabled && x.world && x.image).length;
-  let step = '', msg = '';
-  if (!S.model) {
-    msg = '<b>3D-Modell laden</b> über das Würfel-Symbol oben links';
-  } else if (S.pickCenter) {
-    step = p.name;
-    msg = 'Ungefähre <b>Bildmitte</b> des Beamers im Modell anklicken';
-  } else if (S.pendingRepick) {
-    step = `Punkt ${S.activePointId}`;
-    msg = 'Neue Stelle im Modell anklicken';
-  } else if (n === 0 && !activePoint()) {
-    step = `${p.name} · 1/4`;
-    msg = 'Eine <b>gut erkennbare Ecke</b> im Modell anklicken, weit außen im Bild beginnen';
-  } else if (activePoint() && !p.solution) {
-    step = `${p.name} · ${Math.min(n, 4)}/4`;
-    msg = 'Fadenkreuz auf dem Beamer an <b>dieselbe Stelle der echten Decke</b> bringen, dann den nächsten Punkt anklicken';
-  } else if (!p.solution) {
-    step = `${p.name} · ${n}/4`;
-    msg = 'Nächsten Punkt weit entfernt von den bisherigen wählen';
-  } else if (n < 6) {
-    step = `${p.name} · ${n}/6`;
-    msg = 'Kanten auf der Decke prüfen. Weitere Punkte dort setzen, wo es nicht passt, Vorschläge sind <b>blau</b> markiert';
-  } else {
-    g.replaceChildren();
-    return;
+  const n = enabledPoints(p);
+  const name = displayName(p);
+  if (!S.model) return coach('!', 'Kein 3D-Modell geladen', 'Unter „Einrichten“ eine OBJ-Datei wählen.');
+  if (S.mode === 'blend') {
+    const m = p.masks.find((x) => x.id === S.activeMaskId);
+    if (m && !m.closed) return coach(String(m.points.length), 'Maske zeichnen', 'Im Projektorbild rechts Eckpunkte setzen. Klick auf den ersten Punkt schließt die Form.');
+    if (!Object.keys(S.blendImages).length) return coach('3', 'Masken berechnen', 'Rechts auf „Masken berechnen“ klicken, sobald die Projektoren kalibriert sind.');
+    return g.replaceChildren();
   }
-  g.innerHTML = `${step ? `<span class="step">${step}</span>` : ''}<span class="msg">${msg}</span>`;
+  if (S.mode !== 'calibrate') return g.replaceChildren();
+  if (S.pickCenter) return coach(ic('focus', 16), 'Bildmitte wählen', `Ungefähr dorthin klicken, wo die Mitte des Bildes von ${name} liegt.`);
+  if (S.pendingRepick) return coach(String(S.activePointId), `Punkt ${S.activePointId} neu setzen`, 'Die richtige Stelle im Modell anklicken.');
+  if (n === 0 && !activePoint()) return coach('1', 'Markante Ecke im Modell anklicken', `Am besten weit außen im Bild von ${name} beginnen.`);
+  if (activePoint() && !p.solution) return coach(String(Math.max(n, 1)), 'Fadenkreuz an dieselbe Ecke der Decke schieben', 'Im Vorschaubild ziehen oder mit den Pfeiltasten. Danach die nächste Ecke anklicken.');
+  if (!p.solution) return coach(String(n + 1), 'Nächste Ecke anklicken', 'Möglichst weit weg von den bisherigen Punkten.');
+  if (n < 6) return coach(String(n + 1), 'Kanten an der Decke prüfen', 'Wo es nicht passt, einen weiteren Punkt setzen. Vorschläge sind blau markiert.');
+  g.replaceChildren();
 }
 
-function renderMaskTab() {
-  const p = active();
-  $('#maskList').replaceChildren(...p.masks.map((m) => el('div', { class: m.id === S.activeMaskId ? 'active' : '', onclick: () => { S.activeMaskId = m.id; refresh(); } },
-    el('span', {}, m.name), el('span', { class: 'meta' }, `${m.mode === 'hide' ? 'Ausblenden' : 'Nur hier'} · ${m.closed ? `${m.points.length} Ecken` : 'offen'}`))));
-  const m = p.masks.find((x) => x.id === S.activeMaskId);
-  $('#btnDeleteMask').disabled = !m;
-  $('#maskProps').replaceChildren(...(m ? [
-    el('div', { class: 'sep' }),
-    row('Name', input(m.name, (v) => { m.name = v; markDirty(); refresh(); })),
-    row('Wirkung', select([['hide', 'Bereich ausblenden'], ['show', 'Nur Bereich zeigen']], m.mode, (v) => { pushUndo(); m.mode = v; markDirty(); refresh(); })),
-    row('Weiche Kante', rangeCtl(m.feather, 0, 300, 1, (v) => `${v} px`, (v) => { m.feather = v; refresh(true); }, () => { markDirty(); refresh(); })),
-    row('Aktiv', switchCtl(m.enabled !== false, (v) => { m.enabled = v; markDirty(); refresh(); })),
-  ] : []));
-}
-
-function renderBlendTab() {
+// ---------- 3 Überblenden
+function renderBlend() {
   const b = S.project.blend;
-  const set = (k, v, re = true) => { b[k] = v; markDirty(); if (re) refresh(); };
-  $('#blendSettings').replaceChildren(
-    row('Überblendung', switchCtl(b.auto, (v) => set('auto', v)), 'Weiche Überblendung, wo sich Projektoren überlappen. Gewichtet nach Abstand zum eigenen Bildrand.'),
-    row('Breite', rangeCtl(b.width, 0.05, 1, 0.05, (v) => `${nf(v * 100, 0)} %`, null, (v) => set('width', v))),
-    row('Gamma', input(b.gamma, (v) => set('gamma', v), 'number', { step: 0.1, min: 1, max: 3 }), 'Gamma der Beamer, meist 2,2. Verhindert dunkle oder helle Streifen in der Überblendung.'),
-    el('div', { class: 'sep' }),
-    row('Steile Flächen', switchCtl(b.tiltFilter, (v) => set('tiltFilter', v)), 'Blendet Flächen aus, die steiler als der Grenzwinkel stehen, z. B. die Seiten der Bögen. Gilt für alle Projektoren, damit die Bilder zusammenpassen.'),
-    row('ab Neigung', rangeCtl(b.maxTilt, 30, 89, 1, (v) => `${v}°`, null, (v) => set('maxTilt', v))),
-    row('Streiflicht', switchCtl(b.incFilter, (v) => set('incFilter', v)), 'Blendet Flächen aus, die ein Projektor nur sehr flach trifft. Dort ist das Bild stark verzerrt und unscharf.'),
-    row('ab Winkel', rangeCtl(b.maxIncidence, 50, 89, 1, (v) => `${v}°`, null, (v) => set('maxIncidence', v))),
-    el('div', { class: 'sep' }),
-    row('Helligkeit', switchCtl(b.brightness, (v) => set('brightness', v)), 'Weiter entfernte oder schräg getroffene Flächen sind dunkler. Hellere Bereiche werden auf ein gemeinsames Niveau gedimmt.'),
-    row('Stärke', rangeCtl(b.brightnessStrength, 0, 1, 0.05, (v) => `${nf(v * 100, 0)} %`, null, (v) => set('brightnessStrength', v)), '100 % gleicht vollständig an und kostet am meisten Gesamthelligkeit'),
+  const p = active();
+  const set = (k, v) => { b[k] = v; markDirty(); refresh(); };
+  const m = p.masks.find((x) => x.id === S.activeMaskId);
+  const maskRows = p.masks.map((x) => el('div', { class: `r ${x.id === S.activeMaskId ? 'active' : ''} ${x.enabled === false ? 'off' : ''}`, onclick: () => { S.activeMaskId = x.id === S.activeMaskId ? null : x.id; refresh(); } },
+    el('span', { class: 'pid' }, ic('blend', 13)),
+    el('span', { class: 'nm' }, x.name, el('span', { class: 'sub' }, `${x.mode === 'hide' ? 'Blendet aus' : 'Zeigt nur diesen Bereich'} · ${x.closed ? `${x.points.length} Ecken` : 'wird gezeichnet'}`)),
+    el('span', {}), el('span', {})));
+  put('#paneBlend', 
+    gtitle('Überblendung'),
+    group(
+      r('Weich überblenden', switchCtl(b.auto, (v) => set('auto', v)), { tip: 'Wo sich Projektoren überlappen, wird weich übergeblendet. Gewichtet nach Abstand zum eigenen Bildrand.' }),
+      r('Breite', rangeCtl(b.width, 0.05, 1, 0.05, (v) => `${nf(v * 100, 0)} %`, null, (v) => set('width', v)), { cls: b.auto ? '' : 'dim' }),
+      r('Gamma', input(b.gamma, (v) => set('gamma', v), 'number', { step: 0.1, min: 1, max: 3, style: 'width:72px' }), { tip: 'Gamma der Beamer, meist 2,2. Verhindert dunkle oder helle Streifen in der Überblendung.' }),
+    ),
+    gtitle('Bogenseiten', infoBtn('Flächen, die nur von unten beleuchtet werden sollen. Gilt für alle Projektoren gleich, damit die Bilder zusammenpassen.')),
+    group(
+      r('Steile Flächen ausblenden', switchCtl(b.tiltFilter, (v) => set('tiltFilter', v)), { tip: 'Blendet Flächen aus, die steiler als der Grenzwinkel stehen, z. B. die Seiten der Bögen.' }),
+      r('ab Neigung', rangeCtl(b.maxTilt, 30, 89, 1, (v) => `${v}°`, null, (v) => set('maxTilt', v)), { cls: b.tiltFilter ? 'indent' : 'indent dim' }),
+      r('Streiflicht ausblenden', switchCtl(b.incFilter, (v) => set('incFilter', v)), { tip: 'Blendet Stellen aus, die ein Projektor nur sehr flach trifft. Dort ist das Bild verzerrt und ungleich hell.' }),
+      r('ab Winkel', rangeCtl(b.maxIncidence, 50, 89, 1, (v) => `${v}°`, null, (v) => set('maxIncidence', v)), { cls: b.incFilter ? 'indent' : 'indent dim' }),
+    ),
+    gtitle('Helligkeit'),
+    group(
+      r('Angleichen', switchCtl(b.brightness, (v) => set('brightness', v)), { tip: 'Weiter entfernte oder schräg getroffene Flächen sind dunkler. Hellere Bereiche werden auf ein gemeinsames Niveau gedimmt.' }),
+      r('Stärke', rangeCtl(b.brightnessStrength, 0, 1, 0.05, (v) => `${nf(v * 100, 0)} %`, null, (v) => set('brightnessStrength', v)), { cls: b.brightness ? '' : 'dim', tip: '100 % gleicht vollständig an und kostet am meisten Gesamthelligkeit.' }),
+    ),
+    el('div', { style: 'padding:12px 0 0' }, el('button', { class: 'btn primary block', id: 'btnComputeBlend', onclick: computeBlend }, ic('refresh', 15), 'Masken berechnen')),
+    el('div', { class: 'hint', id: 'blendStatus', style: 'text-align:center' }, S.blendStatus || ''),
+    gtitle(`Eigene Masken · ${displayName(p)}`,
+      iconBtn('plus', 'Neue Maske zeichnen', newMask, { id: 'btnNewMask' }),
+      iconBtn('trash', 'Gewählte Maske löschen', deleteMask, { disabled: !m, id: 'btnDeleteMask' })),
+    maskRows.length ? el('div', { class: 'group plist' }, ...maskRows) : group(el('div', { class: 'empty-note' }, 'Mit + eine Maske anlegen und im Projektorbild oben zeichnen.')),
+    m ? el('div', { style: 'height:8px' }) : null,
+    m ? group(
+      r('Name', input(m.name, (v) => { m.name = v; markDirty(); refresh(); })),
+      r('Wirkung', select([['hide', 'Bereich ausblenden'], ['show', 'Nur Bereich zeigen']], m.mode, (v) => { pushUndo(); m.mode = v; markDirty(); refresh(); })),
+      r('Weiche Kante', rangeCtl(m.feather, 0, 300, 1, (v) => `${v} px`, (v) => { m.feather = v; refresh(true); }, () => { markDirty(); refresh(); })),
+      r('Aktiv', switchCtl(m.enabled !== false, (v) => { m.enabled = v; markDirty(); refresh(); })),
+    ) : null,
   );
+}
+
+function newMask() {
+  const p = active();
+  pushUndo();
+  const m = { id: `M${Date.now().toString(36)}`, name: `Maske ${p.masks.length + 1}`, mode: 'hide', feather: 40, points: [], closed: false, enabled: true };
+  p.masks.push(m);
+  S.activeMaskId = m.id;
+  refresh();
+}
+function deleteMask() {
+  const p = active();
+  const i = p.masks.findIndex((x) => x.id === S.activeMaskId);
+  if (i < 0) return;
+  pushUndo();
+  p.masks.splice(i, 1);
+  S.activeMaskId = null;
+  markDirty();
+  refresh();
+}
+
+// ---------- 4 Ausgabe
+const TEST_MODES = [['edges', 'Kanten', 'Kanten des Modells'], ['grid', 'Raster', 'Gleichmäßiges Raster über das Modell'], ['white', 'Weiß', 'Weiße Fläche, zeigt Überblendung und Helligkeit'], ['ident', 'Nummer', 'Projektornummer groß']];
+function renderOutput() {
+  const v = S.project.view;
+  const td = S.project.td;
+  const isOpen = S.openOutputs.size > 0;
+  put('#paneOutput', 
+    gtitle('Projektoren'),
+    group(
+      r('Bild ausgeben', switchCtl(isOpen, (on) => toggleOutputs(on), { id: 'swOutputs' }), { sub: 'Vollbild auf den zugeordneten Bildschirmen' }),
+      el('div', { class: 'r wide' }, el('div', { class: 'seg fill', role: 'radiogroup', 'aria-label': 'Testbild' },
+        ...TEST_MODES.map(([k, l, tip]) => el('button', { class: v.outputMode === k ? 'on' : '', 'data-tip': tip, 'data-mode': k, onclick: () => { v.outputMode = k; markDirty(); refresh(); } }, l)))),
+      r('Masken anwenden', switchCtl(v.showMask, (on) => { v.showMask = on; if (on && !Object.keys(S.blendImages).length) computeBlend(); markDirty(); refresh(); }, { id: 'chkShowMask' }), { sub: 'Überblendung und eigene Masken' }),
+    ),
+    gtitle('TouchDesigner', infoBtn('Live senden schickt jede Änderung per OSC an TouchDesigner. Dort einen OSC In DAT mit osc_callbacks.py aus dem Export-Ordner anlegen.')),
+    group(
+      r('Live senden', switchCtl(td.live, (on) => { td.live = on; markDirty(); if (on) sendAllLive(); refresh(); }), { sub: td.live ? S.liveStatus || 'Bereit' : 'Aus' }),
+      r('Ziel', el('div', { style: 'display:flex;gap:6px;width:100%' }, input(td.host, (x) => { td.host = x; markDirty(); }, 'text', { 'aria-label': 'Adresse' }), input(td.port, (x) => { td.port = x; markDirty(); }, 'number', { style: 'width:72px;flex:none', 'aria-label': 'Port' }))),
+    ),
+    el('div', { style: 'padding:12px 0 0' }, el('button', { class: 'btn block', onclick: exportTD, id: 'btnExport' }, ic('export', 15), 'Für TouchDesigner exportieren …')),
+    el('div', { class: 'hint' }, 'Legt Kameras, Masken und ein Python-Skript in einen Ordner neben deiner TouchDesigner-Datei.'),
+  );
+  const btn = $('#btnOutputs');
+  btn.classList.toggle('on', isOpen);
+  btn.setAttribute('aria-pressed', String(isOpen));
 }
 
 // ------------------------------------------------------------------ TouchDesigner live (OSC)
@@ -531,26 +692,13 @@ function sendLive(p, immediate = false) {
   clearTimeout(liveTimers[p.id]);
   liveTimers[p.id] = setTimeout(async () => {
     const ex = exportProjector(p, { modelRadius: S.model?.radius });
-    const r = await api.oscSend(td.host, Number(td.port), '/kalibrator/projector', [JSON.stringify(ex)]);
-    S.liveStatus = r.ok ? `${p.id} gesendet ${new Date().toLocaleTimeString('de-DE')}` : `Fehler: ${r.error}`;
-    const st = document.getElementById('liveStatus');
-    if (st) st.textContent = S.liveStatus;
+    const res = await api.oscSend(td.host, Number(td.port), '/kalibrator/projector', [JSON.stringify(ex)]);
+    S.liveStatus = res.ok ? `Zuletzt ${displayName(p)} um ${new Date().toLocaleTimeString('de-DE')}` : `Fehler: ${res.error}`;
+    if (S.mode === 'output') refresh();
   }, immediate ? 0 : 80);
 }
 function sendAllLive() {
   for (const p of S.project.projectors) sendLive(p, true);
-}
-
-function renderTdSettings() {
-  const td = S.project.td;
-  $('#tdSettings').replaceChildren(
-    el('label', { class: 'switch-row' }, el('span', {}, 'Live senden'), switchCtl(td.live, (v) => { td.live = v; markDirty(); if (v) sendAllLive(); refresh(); })),
-    el('div', { class: 'out-row', style: 'grid-template-columns:52px 1fr 64px' },
-      el('span', {}, 'Ziel'),
-      input(td.host, (v) => { td.host = v; markDirty(); }),
-      input(td.port, (v) => { td.port = v; markDirty(); }, 'number')),
-    el('div', { class: 'muted small', id: 'liveStatus', style: 'padding:2px 0 0 56px;font-size:11px' }, td.live ? S.liveStatus || 'Bereit' : ''),
-  );
 }
 
 // ------------------------------------------------------------------ Ausgänge
@@ -589,8 +737,8 @@ async function toggleOutputs(force) {
   }
   const assigned = S.project.outputs.filter((o) => o.displayId != null && S.displays.some((d) => d.id === o.displayId));
   if (!assigned.length) {
-    toast('Bitte zuerst bei „Ausgänge“ links einen Bildschirm für HDMI A/B wählen.');
-    return;
+    toast('Erst unter „Einrichten“ einen Bildschirm für HDMI A oder B wählen.');
+    return refresh();
   }
   for (const o of assigned) await api.openOutput(o.displayId, o.id);
   await syncOpenOutputs();
@@ -613,7 +761,7 @@ api.onOutputEvent((msg) => {
       // nahen Punkt wählen, sonst aktiven Punkt hierher setzen
       const near = p.points.find((x) => x.image && Math.hypot(x.image[0] - msg.u, x.image[1] - msg.v) < 25);
       if (near && near !== pt) { selectPoint(near.id); return; }
-      if (!pt) return toast('Erst im Modell einen Punkt anklicken – dann hier auf der Decke platzieren.');
+      if (!pt) return toast('Erst im Modell einen Punkt anklicken, dann hier auf der Decke platzieren.');
       pushUndo();
     }
     if (pt) setImage(pt, msg.u, msg.v, msg.phase === 'up' ? 0 : 30);
@@ -640,13 +788,13 @@ function handleKey(e) {
     return true;
   }
   if ((e.key === 'Delete' || e.key === 'Backspace') && pt) { deleteActivePoint(); return true; }
-  if (e.key === 'Escape') { S.activePointId = null; S.pendingRepick = false; S.pickCenter = false; refresh(); return true; }
+  if (e.key === 'Escape') { S.activePointId = null; S.pendingRepick = false; S.pickCenter = false; S.activeMaskId = null; $('#helpMenu').classList.add('hidden'); refresh(); return true; }
   if (/^[1-8]$/.test(e.key) && !e.ctrlKey && !e.metaKey) {
     const target = S.project.projectors[Number(e.key) - 1];
     if (target) selectProjector(target.id);
     return true;
   }
-  if ((e.key === 'Enter') && $('[data-tab=masks]').classList.contains('on')) {
+  if (e.key === 'Enter' && S.mode === 'blend') {
     const m = p.masks.find((x) => x.id === S.activeMaskId);
     if (m && !m.closed && m.points.length >= 3) { m.closed = true; refresh(); }
     return true;
@@ -654,8 +802,13 @@ function handleKey(e) {
   return false;
 }
 window.addEventListener('keydown', (e) => {
-  const tag = document.activeElement?.tagName;
-  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+  if (!$('#onboarding').classList.contains('hidden')) {
+    if (e.key === 'Escape') closeOnboarding(false);
+    return;
+  }
+  const ae = document.activeElement;
+  const tag = ae?.tagName;
+  if ((tag === 'INPUT' && ae.type !== 'checkbox') || tag === 'SELECT' || tag === 'TEXTAREA') return;
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); return e.shiftKey ? redo() : undo(); }
   if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); return redo(); }
@@ -684,7 +837,6 @@ async function loadModelFromPath(path) {
     view.setModel(S.model);
     preview.setModel(S.model);
     S.blendImages = {};
-    setStatus(`${S.project.model.name}: ${Math.round(S.model.triangles).toLocaleString('de-DE')} Dreiecke, ${S.model.featureVertices.length / 3} Einrastpunkte`);
     refresh();
     return true;
   } catch (err) {
@@ -712,7 +864,7 @@ async function save(as = false) {
   S.projectPath = path;
   S.dirty = false;
   S.project.name = path.split(/[\\/]/).pop().replace(/\.kalib\.json$|\.json$/, '');
-  $('#projectName').textContent = S.project.name;
+  refresh();
   toast('Gespeichert');
 }
 
@@ -734,7 +886,6 @@ async function applyProject(data) {
   S.activePointId = null;
   S.results = {};
   undoStack.length = redoStack.length = 0;
-  $('#projectName').textContent = S.project.name;
   if (S.project.model.path && (await api.exists(S.project.model.path))) await loadModelFromPath(S.project.model.path);
   for (const p of S.project.projectors) if (p.points.length) scheduleSolve(p);
   refresh();
@@ -753,14 +904,15 @@ function markDirty() {
 // ------------------------------------------------------------------ Blending + Export
 async function computeBlend() {
   const solved = S.project.projectors.filter((p) => p.solution && p.enabled);
-  if (!S.model || !solved.length) return toast('Erst mindestens einen Projektor kalibrieren.');
-  $('#blendStatus').textContent = 'Rechnet …';
+  if (!S.model || !solved.length) { toast('Erst mindestens einen Projektor kalibrieren.'); return null; }
+  S.blendStatus = 'Rechnet …';
+  refresh();
   await new Promise((r) => setTimeout(r, 30));
   const t0 = performance.now();
   const res = computeBlendMasks(S.model, S.project);
   S.blendImages = res;
   const ms = Math.round(performance.now() - t0);
-  $('#blendStatus').textContent = `${Object.keys(res).length} Masken · ${ms} ms`;
+  S.blendStatus = `${Object.keys(res).length} Masken berechnet in ${nf(ms / 1000, 1)} s`;
   broadcastBlend();
   refresh();
   return res;
@@ -816,20 +968,8 @@ function toast(text) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), 3200);
 }
-function setStatus(t) { $('#statusText').textContent = t; }
 
-// ------------------------------------------------------------------ Verdrahtung
-$('#btnModel').onclick = chooseModel;
-$('#btnOpen').onclick = () => openProject();
-$('#btnSave').onclick = () => save();
-$('#btnUndo').onclick = undo;
-$('#btnRedo').onclick = redo;
-$('#btnOutputs').onclick = () => toggleOutputs();
-$('#btnExport').onclick = exportTD;
-$('#btnFocus').onclick = () => view.focus();
-$('#btnDeletePoint').onclick = deleteActivePoint;
-$('#btnRepick').onclick = () => { S.pendingRepick = !S.pendingRepick; refresh(); };
-$('#btnClearPoints').onclick = () => {
+function clearPoints() {
   const p = active();
   if (!p.points.length) return;
   pushUndo();
@@ -839,46 +979,132 @@ $('#btnClearPoints').onclick = () => {
   S.results[p.id] = {};
   markDirty();
   refresh();
-  toast('Alle Punkte gelöscht – mit Strg/Cmd+Z rückgängig');
+  toast('Alle Punkte gelöscht. Mit Strg/Cmd+Z rückgängig.');
+}
+
+// ------------------------------------------------------------------ Einführung
+const ACC = 'var(--accent)';
+const ART = {
+  welcome: `<svg width="220" height="120" viewBox="0 0 220 120" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14 70 Q60 6 110 30 Q160 6 206 70" stroke="currentColor" stroke-width="2" opacity=".55"/>
+    <path d="M40 70 Q75 34 110 46 Q145 34 180 70" stroke="currentColor" stroke-width="1.5" opacity=".35"/>
+    <path d="M110 30 V46" stroke="currentColor" stroke-width="1.5" opacity=".35"/>
+    <path d="M62 112 L30 56 M62 112 L96 40" stroke="#e5645c" stroke-width="1.5"/><path d="M30 56 Q60 30 96 40" stroke="#e5645c" stroke-width="2" opacity=".6"/>
+    <path d="M158 112 L124 40 M158 112 L190 56" stroke="#4b9ddb" stroke-width="1.5"/><path d="M124 40 Q160 30 190 56" stroke="#4b9ddb" stroke-width="2" opacity=".6"/>
+    <path d="M110 112 L86 44 M110 112 L134 44" stroke="#5bb37b" stroke-width="1.5" opacity=".9"/>
+    <circle cx="62" cy="112" r="5" fill="#e5645c"/><circle cx="110" cy="112" r="5" fill="#5bb37b"/><circle cx="158" cy="112" r="5" fill="#4b9ddb"/>
+  </svg>`,
+  pick: `<svg viewBox="0 0 160 120" width="100%" height="100%" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M18 98 Q80 10 142 98" stroke="#8e8e93" stroke-width="2"/><path d="M48 98 Q80 50 112 98" stroke="#8e8e93" stroke-width="1.5" opacity=".6"/>
+    <path d="M18 98 H142" stroke="#8e8e93" stroke-width="1.5" opacity=".5"/>
+    <circle cx="80" cy="54" r="11" stroke="${ACC}" stroke-width="1.5" opacity=".45"/><circle cx="80" cy="54" r="4.5" fill="${ACC}"/>
+    <path d="M88 61 l16 6.5 -6.1 1.6 -1.6 6.1z" fill="#fff" stroke="#111" stroke-width="1.2"/>
+  </svg>`,
+  move: `<svg viewBox="0 0 160 120" width="100%" height="100%" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="16" y="18" width="128" height="80" rx="3" stroke="#8e8e93" stroke-width="1.5" opacity=".6"/>
+    <path d="M30 98 Q80 30 130 98" stroke="#8e8e93" stroke-width="1.5" opacity=".45"/>
+    <g opacity=".45" stroke="${ACC}" stroke-width="1.5"><circle cx="50" cy="44" r="7"/><path d="M50 32v6M50 50v6M38 44h6M56 44h6"/></g>
+    <path d="M60 50 Q70 58 74 60" stroke="${ACC}" stroke-width="1.5" stroke-dasharray="3 3"/><path d="M70 63 l5 -2 -1 -5" stroke="${ACC}" stroke-width="1.5"/>
+    <g stroke="${ACC}" stroke-width="2"><circle cx="80" cy="64" r="7"/><path d="M80 52v6M80 70v6M68 64h6M86 64h6"/></g>
+  </svg>`,
+  check: `<svg viewBox="0 0 160 120" width="100%" height="100%" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M18 70 Q80 4 142 70" stroke="#8e8e93" stroke-width="2"/>
+    <path d="M80 112 L30 52 M80 112 L130 52" stroke="#e5645c" stroke-width="1.5"/><path d="M30 52 Q80 8 130 52" stroke="#e5645c" stroke-width="2.5" opacity=".7"/>
+    <circle cx="80" cy="112" r="5" fill="#e5645c"/>
+    <circle cx="128" cy="96" r="12" fill="#32c766"/><path d="M122 96 l4 4 8 -8" stroke="#fff" stroke-width="2"/>
+  </svg>`,
 };
-$('#btnNewMask').onclick = () => {
-  const p = active();
-  pushUndo();
-  const m = { id: `M${Date.now().toString(36)}`, name: `Maske ${p.masks.length + 1}`, mode: 'hide', feather: 40, points: [], closed: false, enabled: true };
-  p.masks.push(m);
-  S.activeMaskId = m.id;
-  refresh();
-};
-$('#btnDeleteMask').onclick = () => {
-  const p = active();
-  const i = p.masks.findIndex((x) => x.id === S.activeMaskId);
-  if (i < 0) return;
-  pushUndo();
-  p.masks.splice(i, 1);
-  S.activeMaskId = null;
-  markDirty();
-  refresh();
-};
-$('#btnComputeBlend').onclick = computeBlend;
-document.querySelectorAll('#rightTabs button').forEach((b) => {
-  b.onclick = () => {
-    document.querySelectorAll('#rightTabs button').forEach((x) => x.classList.toggle('on', x === b));
-    document.querySelectorAll('.tab-body').forEach((x) => x.classList.toggle('hidden', x.dataset.tab !== b.dataset.tab));
-    preview.mode = b.dataset.tab === 'masks' ? 'masks' : b.dataset.tab === 'blend' ? 'blend' : 'points';
-    document.querySelectorAll('#rightTabs button').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
-    refresh();
-  };
+
+let obPage = 0;
+const OB_PAGES = 3;
+function onboardingSeen() { try { return localStorage.getItem('kalib.onboarded') === '1'; } catch { return false; } }
+function showOnboarding(page = 0) {
+  obPage = page;
+  $('#onboarding').classList.remove('hidden');
+  renderOnboarding();
+}
+function closeOnboarding(start = false) {
+  $('#onboarding').classList.add('hidden');
+  try { localStorage.setItem('kalib.onboarded', '1'); } catch { /* egal */ }
+  if (start) { S.activeId = S.project.projectors[0].id; S.activePointId = null; setMode('calibrate'); }
+}
+function feat(iconName, title, text) {
+  return el('div', { class: 'feat' }, el('div', { class: 'fi', html: icon(iconName, 20) }), el('b', {}, title), el('span', {}, text));
+}
+function renderOnboarding() {
+  const pages = [
+    () => [
+      el('div', { class: 'hero', html: ART.welcome }),
+      el('h1', { id: 'obTitle' }, 'Willkommen'),
+      el('p', { class: 'lead' }, 'Richte deine Projektoren am 3D-Modell aus, blende sie weich ineinander und gib das Ergebnis direkt aus.'),
+      feat('monitor', 'Einrichten', 'Modell laden und festlegen, welcher Bildschirm welche Projektoren speist.'),
+      feat('target', 'Kalibrieren', 'Pro Projektor ein paar Ecken im Modell anklicken und auf der echten Decke treffen.'),
+      feat('blend', 'Überblenden', 'Überlappungen, Bogenseiten und Helligkeit werden automatisch ausgeglichen.'),
+      feat('projector', 'Ausgabe', 'Testbilder auf den Projektoren zeigen oder an TouchDesigner übergeben.'),
+    ],
+    () => [
+      el('h1', { id: 'obTitle', style: 'margin-top:8px' }, 'Modell und Bildschirme'),
+      el('p', { class: 'lead' }, 'Kurz prüfen, ob alles stimmt. Später lässt sich alles unter „Einrichten“ ändern.'),
+      el('div', { class: 'group' }, modelRow()),
+      el('div', { style: 'height:8px' }),
+      el('div', { class: 'group' }, ...outputRows()),
+      el('p', { class: 'hint', style: 'text-align:center;margin-top:8px' }, 'Projektor 1–4 hängen an HDMI A, Projektor 5–8 an HDMI B, jeweils ein Viertel des Bildes.'),
+    ],
+    () => [
+      el('h1', { id: 'obTitle', style: 'margin-top:8px' }, 'So setzt du einen Punkt'),
+      el('p', { class: 'lead' }, 'Vier Punkte pro Projektor reichen für eine erste Lösung. Sechs gut verteilte sind ideal.'),
+      el('div', { class: 'how' },
+        el('div', {}, el('div', { class: 'pic', html: ART.pick }), el('b', {}, el('span', { class: 'n' }, '1'), 'Ecke anklicken'), el('span', {}, 'Eine markante Ecke im 3D-Modell anklicken.')),
+        el('div', {}, el('div', { class: 'pic', html: ART.move }), el('b', {}, el('span', { class: 'n' }, '2'), 'Fadenkreuz schieben'), el('span', {}, 'Am Projektor dieselbe Ecke an der Decke treffen, mit Maus oder Pfeiltasten.')),
+        el('div', {}, el('div', { class: 'pic', html: ART.check }), el('b', {}, el('span', { class: 'n' }, '3'), 'Prüfen'), el('span', {}, 'Ab vier Punkten erscheinen die Kanten. Wo es nicht passt, nachsetzen.'))),
+    ],
+  ];
+  const last = obPage === OB_PAGES - 1;
+  $('#onboarding').replaceChildren(el('div', { class: 'sheet' },
+    el('div', { class: 'body' }, ...pages[obPage]()),
+    el('div', { class: 'foot' },
+      el('div', { class: 'dots' }, ...Array.from({ length: OB_PAGES }, (_, i) => el('i', { class: i === obPage ? 'on' : '' }))),
+      !last ? el('button', { class: 'btn', style: 'background:none;box-shadow:none', onclick: () => closeOnboarding(false), id: 'obSkip' }, 'Überspringen') : null,
+      obPage > 0 ? el('button', { class: 'btn', onclick: () => { obPage--; renderOnboarding(); } }, 'Zurück') : null,
+      el('button', { class: 'btn primary', id: 'obNext', onclick: () => { if (last) closeOnboarding(true); else { obPage++; renderOnboarding(); } } }, last ? `Mit ${displayName(S.project.projectors[0])} beginnen` : 'Weiter'))));
+  $('#obNext').focus();
+}
+
+// ------------------------------------------------------------------ Hilfe-Menü
+function toggleHelp() {
+  const m = $('#helpMenu');
+  if (!m.classList.contains('hidden')) return m.classList.add('hidden');
+  const keys = [[['Klick'], 'Punkt im Modell setzen'], [['←', '→', '↑', '↓'], 'Fadenkreuz verschieben'], [['⇧'], 'mit Pfeil: 10 Pixel'], [['Tab'], 'Nächster Punkt'], [['Entf'], 'Punkt löschen'], [['1', '–', '8'], 'Projektor wählen'], [['Esc'], 'Auswahl aufheben'], [[api.platform === 'darwin' ? '⌘' : 'Strg', 'Z'], 'Rückgängig']];
+  m.replaceChildren(
+    el('button', { role: 'menuitem', onclick: () => { m.classList.add('hidden'); showOnboarding(0); } }, ic('book'), 'Einführung anzeigen'),
+    el('button', { role: 'menuitem', onclick: () => { m.classList.add('hidden'); chooseModel(); } }, ic('model'), '3D-Modell laden …'),
+    el('hr'),
+    el('div', { class: 'ttl' }, 'Tastenkürzel'),
+    el('div', { class: 'keys' }, ...keys.flatMap(([k, t]) => [el('span', { class: 'k' }, ...k.map((x) => (x === '–' ? el('span', {}, '–') : el('kbd', {}, x)))), el('span', {}, t)])));
+  m.classList.remove('hidden');
+  const b = $('#btnHelp').getBoundingClientRect();
+  m.style.top = `${b.bottom + 6}px`;
+  m.style.left = `${Math.min(b.left, innerWidth - m.offsetWidth - 8)}px`;
+}
+document.addEventListener('pointerdown', (e) => {
+  if (!e.target.closest('#helpMenu, #btnHelp')) $('#helpMenu').classList.add('hidden');
 });
+
+// ------------------------------------------------------------------ Verdrahtung
+$('#btnOpen').onclick = () => openProject();
+$('#btnSave').onclick = () => save();
+$('#btnUndo').onclick = undo;
+$('#btnRedo').onclick = redo;
+$('#btnHelp').onclick = toggleHelp;
+$('#btnOutputs').onclick = () => toggleOutputs();
+$('#btnFocus').onclick = () => view.focus();
+document.querySelectorAll('#modes button').forEach((b) => { b.onclick = () => setMode(b.dataset.mode); });
 document.querySelectorAll('#viewMode button').forEach((b) => {
   b.onclick = () => {
     document.querySelectorAll('#viewMode button').forEach((x) => x.classList.toggle('on', x === b));
     view.setViewMode(b.dataset.view);
   };
 });
-document.querySelectorAll('#outputMode button').forEach((b) => {
-  b.onclick = () => { S.project.view.outputMode = b.dataset.mode; markDirty(); refresh(); };
-});
-$('#chkShowMask').onchange = (e) => { S.project.view.showMask = e.target.checked; if (e.target.checked && !Object.keys(S.blendImages).length) computeBlend(); markDirty(); refresh(); };
 function toolToggle(id, get, set) {
   const b = $(id);
   b.onclick = () => { set(!get()); b.classList.toggle('on', get()); b.setAttribute('aria-pressed', String(get())); refresh(); };
@@ -887,7 +1113,7 @@ toolToggle('#tglCoverage', () => view.showCoverage, (v) => { view.showCoverage =
 toolToggle('#tglFrustums', () => view.showFrustums, (v) => { view.showFrustums = v; });
 toolToggle('#tglSnap', () => view.snap, (v) => { view.snap = v; });
 
-// Tooltips (ersetzt lange Hilfetexte): erscheinen nach kurzer Verzögerung
+// Tooltips (ersetzen lange Hilfetexte): erscheinen nach kurzer Verzögerung
 (function tooltips() {
   const tip = $('#tooltip');
   let timer, cur;
@@ -897,15 +1123,15 @@ toolToggle('#tglSnap', () => view.snap, (v) => { view.snap = v; });
     cur = t;
     clearTimeout(timer);
     tip.classList.remove('show');
-    if (!t) return;
+    if (!t || !t.dataset.tip) return;
     timer = setTimeout(() => {
       tip.textContent = t.dataset.tip;
-      const r = t.getBoundingClientRect();
+      const rc = t.getBoundingClientRect();
       tip.style.left = '0px'; tip.style.top = '0px';
       const w = tip.offsetWidth, h = tip.offsetHeight;
-      let x = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), innerWidth - w - 8);
-      let y = r.bottom + 8;
-      if (y + h > innerHeight - 8) y = r.top - h - 8;
+      const x = Math.min(Math.max(8, rc.left + rc.width / 2 - w / 2), innerWidth - w - 8);
+      let y = rc.bottom + 8;
+      if (y + h > innerHeight - 8) y = rc.top - h - 8;
       tip.style.left = `${x}px`; tip.style.top = `${y}px`;
       tip.classList.add('show');
     }, t.classList.contains('info') ? 150 : 600);
@@ -925,10 +1151,14 @@ api.onMenu((cmd) => ({
   undo, redo,
   openOutputs: () => toggleOutputs(true),
   closeOutputs: () => toggleOutputs(false),
+  onboarding: () => showOnboarding(0),
 })[cmd]?.());
 
 // Start: letzte Sitzung wiederherstellen, sonst Beispielmodell laden
 (async function start() {
+  let mode = 'calibrate';
+  try { mode = localStorage.getItem('kalib.mode') || mode; } catch { /* egal */ }
+  setMode(mode);
   S.displays = await api.listDisplays();
   // Bildschirme vorbelegen: die beiden größten Nicht-Hauptbildschirme für HDMI A/B
   const ext = S.displays.filter((d) => !d.primary).sort((a, b) => b.pixelSize.width - a.pixelSize.width);
@@ -950,5 +1180,6 @@ api.onMenu((cmd) => ({
   });
   await syncOpenOutputs();
   refresh();
-  window.__app = { S, refresh, scheduleSolve, selectPoint, computeBlend, toggleOutputs, ready: true };
+  if (!onboardingSeen()) showOnboarding(0);
+  window.__app = { S, refresh, scheduleSolve, selectPoint, computeBlend, toggleOutputs, setMode, showOnboarding, closeOnboarding, ready: true };
 })();

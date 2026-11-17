@@ -4,7 +4,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { viewMatrixGL, projectionMatrixGL, cameraWorldMatrix } from '../core/export.js';
 
-export const PROJECTOR_COLORS = ['#ff5a5f', '#ffb400', '#34c759', '#2fb7f5', '#a970ff', '#ff7ac6', '#00d1b2', '#c7d34a'];
+export const PROJECTOR_COLORS = ['#e5645c', '#e3a33f', '#5bb37b', '#4b9ddb', '#9a7ddc', '#d46a9d', '#3fae9f', '#aeb04b'];
 
 /** OBJ-Text -> Geometrien. Alle Meshes werden zu einer Geometrie zusammengeführt. */
 export function buildModel(objText, featureAngle = 28) {

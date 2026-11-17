@@ -102,12 +102,6 @@ export class Preview {
       g.lineWidth = 2 * px;
       g.beginPath(); g.arc(s.u, s.v, 26 * px, 0, Math.PI * 2); g.stroke();
       g.setLineDash([]);
-      g.fillStyle = 'rgba(77,163,255,.9)';
-      g.font = `${12 * px}px sans-serif`;
-      const right = s.u > this.W * 0.7;
-      g.textAlign = right ? 'right' : 'left';
-      g.fillText('nächster Punkt', s.u + (right ? -32 : 32) * px, s.v + 4 * px);
-      g.textAlign = 'left';
     }
     // Punkte
     const errs = new Map((p.solution?.errors || []).map((e) => [e.id, e]));

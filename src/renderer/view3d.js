@@ -111,9 +111,9 @@ export class View3D {
     const g = this.groups.frustums;
     g.clear();
     if (!this.showFrustums || !this.model) return;
-    for (const p of this.project.projectors) {
+    this.project.projectors.forEach((p, idx) => {
       const s = p.solution;
-      if (!s) continue;
+      if (!s) return;
       const dist = Math.hypot(...s.center.map((c, i) => c - this.model.center.getComponent(i)));
       const geom = new THREE.BufferGeometry();
       geom.setAttribute('position', new THREE.BufferAttribute(frustumLines(s, dist * 1.05), 3));
@@ -123,8 +123,34 @@ export class View3D {
       const body = new THREE.Mesh(new THREE.SphereGeometry(this.model.radius * (active ? 0.025 : 0.018), 16, 12), new THREE.MeshBasicMaterial({ color: p.color }));
       body.position.set(...s.center);
       g.add(body);
-      g.add(this._label(p.name, p.color, s.center, active ? 1.2 : 0.9));
+      g.add(this._badge(String(idx + 1), p.color, s.center, active ? 1.15 : 0.85));
+    });
+  }
+
+  /** Runde Plakette mit Projektornummer, gleiche Form wie in der Seitenleiste. */
+  _badge(text, color, pos, scale = 1) {
+    const key = `badge|${text}|${color}`;
+    let tex = this.labelCache.get(key);
+    if (!tex) {
+      const c = document.createElement('canvas');
+      c.width = c.height = 96;
+      const g = c.getContext('2d');
+      g.beginPath(); g.arc(48, 48, 40, 0, Math.PI * 2);
+      g.fillStyle = color; g.fill();
+      g.lineWidth = 5; g.strokeStyle = 'rgba(0,0,0,.45)'; g.stroke();
+      g.font = '600 46px -apple-system, "Segoe UI", sans-serif';
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillStyle = '#fff'; g.fillText(text, 48, 51);
+      tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      this.labelCache.set(key, tex);
     }
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+    const s = (this.model?.radius || 5) * 0.055 * scale;
+    sp.scale.set(s, s, 1);
+    sp.position.set(...pos);
+    sp.renderOrder = 21;
+    return sp;
   }
 
   _buildPoints() {

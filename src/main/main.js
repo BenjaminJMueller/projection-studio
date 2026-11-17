@@ -203,6 +203,11 @@ function buildMenu() {
       label: 'Ansicht',
       submenu: [{ role: 'reload' }, { role: 'toggleDevTools' }, { type: 'separator' }, { role: 'togglefullscreen' }],
     },
+    {
+      label: 'Hilfe',
+      role: 'help',
+      submenu: [{ label: 'Einführung anzeigen', click: send('onboarding') }],
+    },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
