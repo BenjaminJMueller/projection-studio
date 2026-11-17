@@ -1142,6 +1142,7 @@ toolToggle('#tglSnap', () => view.snap, (v) => { view.snap = v; });
   document.addEventListener('pointerdown', () => { clearTimeout(timer); tip.classList.remove('show'); });
 })();
 document.body.classList.add(`platform-${api.platform}`);
+try { const k = localStorage.getItem('kalib.knob'); if (k) document.documentElement.dataset.knob = k; } catch { /* egal */ }
 hydrateIcons();
 
 api.onMenu((cmd) => ({

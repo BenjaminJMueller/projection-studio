@@ -32,7 +32,9 @@
   --shadow-sheet: 0 30px 80px rgba(0, 0, 0, 0.55);
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --track: rgba(255, 255, 255, 0.16);
-  --knob: #e9e9ec;
+  --knob: #cdcdd1;
+  --knob-down: #e4e4e8;
+  --knob-edge: rgba(0, 0, 0, 0.35);
   --btn-face: rgba(255, 255, 255, 0.11);
   --btn-shadow: 0 0.5px 0 rgba(255,255,255,0.08) inset, 0 0 0 0.5px rgba(255,255,255,0.06), 0 1px 1px rgba(0,0,0,0.25);
 }
@@ -59,6 +61,8 @@
     --shadow-sheet: 0 30px 80px rgba(0, 0, 0, 0.25);
     --track: rgba(0, 0, 0, 0.12);
     --knob: #ffffff;
+    --knob-down: #f2f2f4;
+    --knob-edge: rgba(0, 0, 0, 0.16);
     --btn-face: #ffffff;
     --btn-shadow: 0 0 0 0.5px rgba(0,0,0,0.14), 0 0.5px 1.5px rgba(0,0,0,0.12);
   }
@@ -132,17 +136,21 @@ input[type=range]::-webkit-slider-runnable-track {
   height: 4px; border-radius: 2px;
   background: linear-gradient(to right, var(--accent) 0 var(--p), var(--track) var(--p) 100%);
 }
+/* Knopf wie macOS: klein, hell, feiner Rand, weicher Schatten. Form über data-knob umschaltbar. */
+:root { --kw: 16px; --kh: 16px; --kr: 8px; }
+:root[data-knob=capsule] { --kw: 24px; --kh: 14px; --kr: 7px; }
+:root[data-knob=tick] { --kw: 8px; --kh: 18px; --kr: 4px; }
 input[type=range]::-webkit-slider-thumb {
-  -webkit-appearance: none; width: 20px; height: 20px; margin-top: -8px; border-radius: 50%;
+  -webkit-appearance: none; width: var(--kw); height: var(--kh); margin-top: calc(2px - var(--kh) / 2); border-radius: var(--kr);
   background: var(--knob); position: relative; z-index: 1;
-  box-shadow: 0 0 0 0.5px rgba(0,0,0,0.14), 0 1px 1px rgba(0,0,0,0.16), 0 2px 6px rgba(0,0,0,0.22);
-  transition: transform 140ms var(--ease);
+  box-shadow: 0 0 0 0.5px var(--knob-edge), 0 0.5px 1px rgba(0,0,0,0.18), 0 1px 3px rgba(0,0,0,0.16);
+  transition: transform 120ms var(--ease), background-color 120ms var(--ease);
 }
-input[type=range]:active::-webkit-slider-thumb { transform: scale(1.08); }
+input[type=range]:active::-webkit-slider-thumb { background: var(--knob-down); }
 input[type=range]:focus-visible { outline: none; }
-input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent), 0 2px 6px rgba(0,0,0,0.22); }
-.ticks { position: absolute; left: 10px; right: 10px; top: 19px; display: flex; justify-content: space-between; pointer-events: none; }
-.ticks i { width: 1px; height: 5px; border-radius: 0.5px; background: var(--text-3); }
+input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 0.5px var(--knob-edge), 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent); }
+.ticks { position: absolute; left: calc(var(--kw) / 2); right: calc(var(--kw) / 2); top: 18px; display: flex; justify-content: space-between; pointer-events: none; }
+.ticks i { width: 1px; height: 4px; border-radius: 0.5px; background: var(--text-3); }
 .has-ticks .slider { padding-bottom: 6px; }
 input[type=checkbox]:not(.switch) {
   appearance: none; width: 16px; height: 16px; margin: 0; border-radius: 4px; flex: none;
