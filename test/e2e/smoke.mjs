@@ -91,6 +91,13 @@ await win.waitForFunction(() => window.__app.S.project.projectors.slice(0, 4).ev
 await win.waitForTimeout(800);
 await win.screenshot({ path: path.join(outDir, '02-kalibriert.png') });
 
+// Nur 4 Punkte aktiv: Anleitung und Vorschläge für den nächsten Punkt erscheinen
+await win.evaluate(() => { const { S, scheduleSolve, refresh } = window.__app; const p = S.project.projectors[0]; p.points.forEach((x, i) => { x.enabled = i < 4; }); scheduleSolve(p); refresh(); });
+await win.waitForTimeout(1500);
+await win.screenshot({ path: path.join(outDir, '02b-vorschlaege.png') });
+await win.evaluate(() => { const { S, scheduleSolve, refresh } = window.__app; const p = S.project.projectors[0]; p.points.forEach((x) => { x.enabled = true; }); scheduleSolve(p); refresh(); });
+await win.waitForTimeout(1000);
+
 // Projektor-Sicht
 await win.click('#viewMode button[data-view=projector]');
 await win.waitForTimeout(400);

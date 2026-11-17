@@ -97,7 +97,7 @@ export class Preview {
     // Vorschlag für nächsten Punkt
     if (this.extras.suggest && this.mode === 'points') {
       const s = this.extras.suggest;
-      g.strokeStyle = 'rgba(77,163,255,.7)';
+      g.strokeStyle = 'rgba(10,132,255,.8)';
       g.setLineDash([8 * px, 6 * px]);
       g.lineWidth = 2 * px;
       g.beginPath(); g.arc(s.u, s.v, 26 * px, 0, Math.PI * 2); g.stroke();
@@ -109,28 +109,38 @@ export class Preview {
       if (!pt.image) continue;
       const active = pt.id === this.activePointId;
       const e = errs.get(pt.id);
-      const col = !pt.enabled ? '#777' : !e ? '#ffffff' : e.error < 3 ? '#34c759' : e.error < 8 ? '#ffb400' : '#ff5a5f';
+      const state = !pt.enabled ? 'off' : active ? 'active' : e && e.error >= 8 ? 'bad' : e && e.error >= 3 ? 'warn' : 'ok';
+      const ACC = '#0a84ff';
       const [u, v] = pt.image;
       if (active) {
-        g.strokeStyle = 'rgba(77,163,255,.55)';
+        g.strokeStyle = 'rgba(10,132,255,.5)';
         g.lineWidth = px;
         g.beginPath(); g.moveTo(0, v); g.lineTo(this.W, v); g.moveTo(u, 0); g.lineTo(u, this.H); g.stroke();
       }
-      if (e && pt.enabled) {
-        // Fehlervektor: gesetzt -> wo das Modell landet
-        g.strokeStyle = col; g.lineWidth = 1.5 * px;
+      if (e && pt.enabled && e.error >= 1) {
+        // Abweichung: gesetzter Punkt -> wo das Modell landet (dünne Linie, kleiner Endpunkt)
+        g.strokeStyle = state === 'bad' ? '#ff5a52' : state === 'warn' ? '#f0a531' : 'rgba(255,255,255,.55)';
+        g.lineWidth = 1.2 * px;
         g.beginPath(); g.moveTo(u, v); g.lineTo(e.projected[0], e.projected[1]); g.stroke();
-        g.beginPath();
-        const q = e.projected, k = 4 * px;
-        g.moveTo(q[0] - k, q[1] - k); g.lineTo(q[0] + k, q[1] + k); g.moveTo(q[0] + k, q[1] - k); g.lineTo(q[0] - k, q[1] + k);
-        g.stroke();
+        g.fillStyle = g.strokeStyle;
+        g.beginPath(); g.arc(e.projected[0], e.projected[1], 2 * px, 0, Math.PI * 2); g.fill();
       }
-      g.strokeStyle = active ? '#4da3ff' : col;
-      g.lineWidth = (active ? 2.5 : 1.5) * px;
-      g.beginPath(); g.arc(u, v, (active ? 9 : 6) * px, 0, Math.PI * 2); g.stroke();
-      g.fillStyle = active ? '#4da3ff' : col;
-      g.font = `bold ${12 * px}px sans-serif`;
-      g.fillText(String(pt.id), u + 9 * px, v - 9 * px);
+      // Fadenkreuz: weiß mit dunkler Kontur, aktiv blau
+      const k = (active ? 8 : 6) * px;
+      for (const [w, c] of [[3 * px, 'rgba(0,0,0,.55)'], [1.4 * px, active ? ACC : state === 'off' ? 'rgba(255,255,255,.45)' : '#fff']]) {
+        g.strokeStyle = c; g.lineWidth = w;
+        g.beginPath(); g.moveTo(u - k, v); g.lineTo(u + k, v); g.moveTo(u, v - k); g.lineTo(u, v + k); g.stroke();
+      }
+      // Nummer als kleine Plakette oben rechts
+      const r = 8 * px, bx = u + 11 * px, by = v - 11 * px;
+      g.beginPath(); g.arc(bx, by, r, 0, Math.PI * 2);
+      g.fillStyle = active ? ACC : state === 'off' ? 'rgba(60,60,64,.8)' : 'rgba(30,30,34,.9)'; g.fill();
+      g.lineWidth = (state === 'bad' || state === 'warn' ? 2 : 1.2) * px;
+      g.strokeStyle = state === 'bad' ? '#ff5a52' : state === 'warn' ? '#f0a531' : 'rgba(255,255,255,.9)'; g.stroke();
+      g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.font = `600 ${10 * px}px -apple-system, "Segoe UI", sans-serif`;
+      g.fillText(String(pt.id), bx, by + 0.5 * px);
+      g.textAlign = 'left'; g.textBaseline = 'alphabetic';
     }
     // Projektorrand
     g.strokeStyle = p.color; g.lineWidth = 2 * px;

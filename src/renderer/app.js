@@ -271,6 +271,11 @@ function setMode(m) {
   if (m !== 'blend') S.activeMaskId = null;
   refresh();
 }
+/** Vorschläge nur zeigen, solange noch Punkte fehlen oder die Lösung unsicher ist (die Anleitung erklärt sie dann). */
+function showSuggest() {
+  const p = active();
+  return S.mode === 'calibrate' && (enabledPoints(p) < 6 || !isGood(S.results[p.id]?.quality));
+}
 function previewMode() {
   if (S.mode === 'blend') return S.activeMaskId ? 'masks' : 'blend';
   if (S.mode === 'output') return Object.keys(S.blendImages).length ? 'blend' : 'points';
@@ -297,9 +302,9 @@ function refresh(light = false) {
     renderCalibrate();
     renderGuide();
     renderDocState();
-    view.update(S.project, S.activeId, S.activePointId, S.pendingRepick, S.mode === 'calibrate' ? S.results[S.activeId]?.candidates : null);
+    view.update(S.project, S.activeId, S.activePointId, S.pendingRepick, showSuggest() ? S.results[S.activeId]?.candidates : null);
     preview.mode = previewMode();
-    preview.set(active(), S.activePointId, { suggest: S.mode === 'calibrate' ? S.results[S.activeId]?.suggest : null, activeMaskId: S.activeMaskId, blendImg: blendImgFor(S.activeId) });
+    preview.set(active(), S.activePointId, { suggest: showSuggest() ? S.results[S.activeId]?.suggest : null, activeMaskId: S.activeMaskId, blendImg: blendImgFor(S.activeId) });
     $('#previewCaption').replaceChildren(el('span', {}, el('b', {}, displayName(active())), outputLabel(active())), el('span', {}, `${active().resolution[0]} × ${active().resolution[1]}`));
     $('#btnUndo').disabled = !undoStack.length;
     $('#btnRedo').disabled = !redoStack.length;
@@ -544,7 +549,7 @@ function renderCalibrate() {
     return el('div', { class: `r ${pt.id === S.activePointId ? 'active' : ''} ${pt.enabled ? '' : 'off'}`, onclick: () => selectPoint(pt.id) },
       el('span', { class: 'pid' }, String(pt.id)),
       el('span', { class: 'nm' }, `Punkt ${pt.id}`, pt.snapped ? null : el('span', { class: 'sub' }, 'Freie Stelle, nicht eingerastet')),
-      el('span', { class: 'err' }, e != null && pt.enabled ? [el('i', { class: errClass(e) }), `${nf(e)} px`] : ''),
+      el('span', { class: 'err' }, e != null && pt.enabled ? [e >= 3 ? el('i', { class: errClass(e) }) : null, `${nf(e)} px`] : ''),
       el('input', { type: 'checkbox', 'aria-label': 'Punkt verwenden', 'data-tip': 'Punkt verwenden', checked: pt.enabled, onclick: (ev) => ev.stopPropagation(), onchange: (ev) => { pushUndo(); pt.enabled = ev.target.checked; scheduleSolve(p); markDirty(); refresh(); } }));
   });
   put('#paneCalibrate', 
@@ -594,7 +599,7 @@ function renderGuide() {
   if (n === 0 && !activePoint()) return coach('1', 'Markante Ecke im Modell anklicken', `Am besten weit außen im Bild von ${name} beginnen.`);
   if (activePoint() && !p.solution) return coach(String(Math.max(n, 1)), 'Fadenkreuz an dieselbe Ecke der Decke schieben', 'Im Vorschaubild ziehen oder mit den Pfeiltasten. Danach die nächste Ecke anklicken.');
   if (!p.solution) return coach(String(n + 1), 'Nächste Ecke anklicken', 'Möglichst weit weg von den bisherigen Punkten.');
-  if (n < 6) return coach(String(n + 1), 'Kanten an der Decke prüfen', 'Wo es nicht passt, einen weiteren Punkt setzen. Vorschläge sind blau markiert.');
+  if (n < 6 || !isGood(S.results[p.id]?.quality)) return coach(String(n + 1), 'Kanten an der Decke prüfen', 'Wo es nicht passt, einen weiteren Punkt setzen. Blaue Kreise mit + sind gute Stellen dafür.');
   g.replaceChildren();
 }
 

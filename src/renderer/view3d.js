@@ -53,6 +53,7 @@ export class View3D {
     this.renderer.setSize(r.width, r.height, false);
     this.camera.aspect = r.width / Math.max(1, r.height);
     this.camera.updateProjectionMatrix();
+    if (this.project && this.model) this._buildPoints();
     this.requestRender();
   }
 
@@ -167,31 +168,15 @@ export class View3D {
       ring.renderOrder = 8;
       g.add(ring);
     }
-    // Vorschläge für den nächsten Punkt (blaue Rauten)
-    for (const c of this.candidates) {
-      const m = new THREE.Mesh(new THREE.OctahedronGeometry(r * 1.8), new THREE.MeshBasicMaterial({ color: 0x4da3ff, wireframe: true, depthTest: false }));
-      m.position.set(...c);
-      m.renderOrder = 9;
-      g.add(m);
-    }
+    // Vorschläge für den nächsten Punkt: hohler blauer Kreis mit Plus
+    for (const c of this.candidates) g.add(this._marker('suggest', c, 34));
     const errs = new Map((p.solution?.errors || []).map((e) => [e.id, e.error]));
     for (const pt of p.points) {
       if (!pt.world) continue;
       const active = pt.id === this.activePointId;
       const e = errs.get(pt.id);
-      const col = !pt.enabled ? 0x666666 : e == null ? 0xffffff : e < 3 ? 0x34c759 : e < 8 ? 0xffb400 : 0xff5a5f;
-      const m = new THREE.Mesh(new THREE.SphereGeometry(active ? r * 1.6 : r, 16, 12), new THREE.MeshBasicMaterial({ color: col, depthTest: false }));
-      m.renderOrder = 10;
-      m.position.set(...pt.world);
-      g.add(m);
-      if (active) {
-        const ring = new THREE.Mesh(new THREE.RingGeometry(r * 2.4, r * 3, 32), new THREE.MeshBasicMaterial({ color: 0x4da3ff, side: THREE.DoubleSide, depthTest: false }));
-        ring.position.copy(m.position);
-        ring.lookAt(this.camera.position);
-        ring.renderOrder = 11;
-        g.add(ring);
-      }
-      g.add(this._label(String(pt.id), active ? '#4da3ff' : '#ffffff', pt.world.map((v, i) => v + (i === 1 ? -r * 3 : 0)), 0.7));
+      const state = !pt.enabled ? 'off' : active ? 'active' : e != null && e >= 8 ? 'bad' : e != null && e >= 3 ? 'warn' : 'ok';
+      g.add(this._marker(`pt|${pt.id}|${state}`, pt.world, active ? 32 : 28));
       // Strahl vom Projektor durch den gesetzten Bildpunkt (zeigt Abweichung im Raum)
       if (p.solution && pt.image) {
         const s = p.solution;
@@ -208,32 +193,53 @@ export class View3D {
     }
   }
 
-  _label(text, color, pos, scale = 1) {
-    const key = `${text}|${color}`;
+  /** Bildschirmfester Marker (Sprite, Größe in CSS-Pixeln). key: 'suggest' oder 'pt|<nr>|<zustand>'. */
+  _marker(key, pos, sizePx) {
     let tex = this.labelCache.get(key);
     if (!tex) {
       const c = document.createElement('canvas');
-      c.width = 128; c.height = 64;
+      c.width = c.height = 96;
       const g = c.getContext('2d');
-      g.font = 'bold 40px -apple-system, Segoe UI, sans-serif';
-      g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.lineWidth = 8; g.strokeStyle = 'rgba(0,0,0,.85)';
-      g.strokeText(text, 64, 32);
-      g.fillStyle = color; g.fillText(text, 64, 32);
+      const ACC = '#0a84ff';
+      if (key === 'suggest') {
+        g.setLineDash([9, 7]);
+        g.lineWidth = 7; g.strokeStyle = 'rgba(0,0,0,.35)';
+        g.beginPath(); g.arc(48, 48, 36, 0, Math.PI * 2); g.stroke();
+        g.lineWidth = 5; g.strokeStyle = ACC;
+        g.beginPath(); g.arc(48, 48, 36, 0, Math.PI * 2); g.stroke();
+        g.setLineDash([]);
+        g.lineWidth = 6; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(48, 34); g.lineTo(48, 62); g.moveTo(34, 48); g.lineTo(62, 48); g.stroke();
+      } else {
+        const [, num, state] = key.split('|');
+        const fill = { active: ACC, off: 'rgba(60,60,64,.75)' }[state] || 'rgba(36,36,40,.92)';
+        const ring = { active: '#ffffff', bad: '#ff5a52', warn: '#f0a531' }[state] || 'rgba(255,255,255,.9)';
+        g.beginPath(); g.arc(48, 48, 40, 0, Math.PI * 2);
+        g.fillStyle = fill; g.fill();
+        g.lineWidth = state === 'bad' || state === 'warn' ? 8 : 5; g.strokeStyle = ring; g.stroke();
+        g.font = `600 ${num.length > 1 ? 40 : 46}px -apple-system, "Segoe UI", sans-serif`;
+        g.textAlign = 'center'; g.textBaseline = 'middle';
+        g.fillStyle = state === 'off' ? 'rgba(255,255,255,.6)' : '#fff';
+        g.fillText(num, 48, 51);
+      }
       tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
       this.labelCache.set(key, tex);
     }
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
-    const s = (this.model?.radius || 5) * 0.06 * scale;
-    sp.scale.set(s * 2, s, 1);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true, sizeAttenuation: false }));
+    const cam = this._activeCamera();
+    const h = this.canvas.clientHeight || 800;
+    const s = (sizePx * 2 * Math.tan(THREE.MathUtils.degToRad(cam.fov || 50) / 2)) / h;
+    sp.scale.set(s, s, 1);
     sp.position.set(...pos);
-    sp.renderOrder = 20;
+    sp.renderOrder = key === 'suggest' ? 9 : 12;
     return sp;
   }
 
   setViewMode(mode) {
     this.viewMode = mode;
     this.controls.enabled = mode === 'orbit';
+    if (this.project) this._buildPoints(); // Markergröße hängt vom Kamerawinkel ab
     this.requestRender();
   }
 
