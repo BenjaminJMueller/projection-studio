@@ -3,18 +3,21 @@ import { PROJECTOR_COLORS } from './scene.js';
 
 export const PROJECT_VERSION = 1;
 
-export function defaultProjectors() {
-  // Vorlage aus der TouchDesigner-Datei: P1-P4 auf HDMI A, P5-P8 auf HDMI B (je 2x2 Quadranten)
-  return Array.from({ length: 8 }, (_, i) => ({
+export const MAX_PROJECTORS = 16;
+export const MAX_VIDEO_OUTPUTS = 4;
+
+/** Ein Projektor mit Standardwerten. i = Position in der Liste (bestimmt Name, Farbe, Ausgang). */
+export function makeProjector(i, extra = {}) {
+  return {
     id: `P${i + 1}`,
     name: `P${i + 1}`,
-    color: PROJECTOR_COLORS[i],
+    color: PROJECTOR_COLORS[i % PROJECTOR_COLORS.length],
     output: i < 4 ? 'A' : 'B',
-    quadrant: i % 4, // 0 oben links, 1 oben rechts, 2 unten links, 3 unten rechts
+    quadrant: i % 4, // Feld im Ausgang (bei 2 × 2: 0 oben links, 1 oben rechts, 2 unten links, 3 unten rechts)
     resolution: [1920, 1080],
     lens: 'epson-eb535w-1080p',
     mountMode: 'auto',
-    ring: i < 4 ? 'innen' : 'außen',
+    ring: i < 4 ? 'innen' : 'außen', // Gruppe in der Seitenleiste
     tdCamera: i === 0 ? 'Projektorkamera' : `Kamera_P${i + 1}`,
     tdRender: i === 0 ? 'Projektion' : `Projektion_P${i + 1}`,
     points: [],
@@ -23,7 +26,55 @@ export function defaultProjectors() {
     solution: null,
     masks: [],
     enabled: true,
-  }));
+    ...extra,
+  };
+}
+
+export function defaultProjectors() {
+  // Vorlage aus der TouchDesigner-Datei: P1-P4 auf HDMI A, P5-P8 auf HDMI B (je 2x2 Quadranten)
+  return Array.from({ length: 8 }, (_, i) => makeProjector(i));
+}
+
+/** Gruppenname für die Anzeige (die Ringe des Gewölbes heißen Innenring/Außenring). */
+export const groupLabel = (g) => (g === 'innen' ? 'Innenring' : g === 'außen' ? 'Außenring' : g || 'Projektoren');
+
+/**
+ * Projektor anhängen: nächste freie Nummer, gleiche Gruppe und Einstellungen wie der letzte,
+ * erstes freies Feld eines Ausgangs. Rückgabe: der neue Projektor oder null (Höchstzahl erreicht).
+ */
+export function addProjector(project) {
+  const ps = project.projectors;
+  if (ps.length >= MAX_PROJECTORS) return null;
+  let n = ps.length;
+  while (ps.some((p) => p.id === `P${n + 1}`)) n++;
+  const last = ps[ps.length - 1];
+  const used = new Set(ps.map((p) => p.color));
+  const color = PROJECTOR_COLORS.find((c) => !used.has(c)) || PROJECTOR_COLORS[n % PROJECTOR_COLORS.length];
+  let output = '', quadrant = 0;
+  for (const o of project.outputs.filter((x) => !x.solo)) {
+    const taken = new Set(ps.filter((p) => p.output === o.id).map((p) => p.quadrant % cellCount(o)));
+    const free = Array.from({ length: cellCount(o) }, (_, q) => q).find((q) => !taken.has(q));
+    if (free != null) { output = o.id; quadrant = free; break; }
+  }
+  const p = makeProjector(n, {
+    color, output, quadrant,
+    ring: last?.ring ?? 'innen',
+    resolution: last ? [...last.resolution] : [1920, 1080],
+    lens: last?.lens ?? 'epson-eb535w-1080p',
+    mountMode: last?.mountMode ?? 'auto',
+  });
+  ps.push(p);
+  return p;
+}
+
+/** Weiteren Ausgang für einen Video-Wall-Controller anlegen (HDMI C, D). */
+export function addOutput(project) {
+  const vids = project.outputs.filter((o) => !o.solo);
+  if (vids.length >= MAX_VIDEO_OUTPUTS) return null;
+  const id = 'ABCDEFGH'.split('').find((c) => !project.outputs.some((o) => o.id === c));
+  const o = { id, name: `HDMI ${id}`, displayId: null, layout: '2x2' };
+  project.outputs.splice(project.outputs.indexOf(vids[vids.length - 1]) + 1, 0, o);
+  return o;
 }
 
 export function newProject() {
@@ -37,6 +88,7 @@ export function newProject() {
       { id: 'T', name: 'Testausgang', displayId: null, layout: '1x1', solo: true },
     ],
     projectors: defaultProjectors(),
+    projectorTypes: [], // eigene Projektor-Typen aus Datenblättern (siehe core/lenses.js)
     blend: {
       auto: true,
       width: 0.3, // Breite der weichen Überblendzone (Anteil der Überlappung)
@@ -68,6 +120,8 @@ export const LAYOUTS = {
   '1x3': { rows: 1, cols: 3, label: '3 nebeneinander', hint: 'Controller, 3 Projektoren' },
   '1x4': { rows: 1, cols: 4, label: '4 nebeneinander', hint: 'Controller, 4 Projektoren' },
   '4x1': { rows: 4, cols: 1, label: '4 übereinander', hint: 'Controller, 4 Projektoren' },
+  '2x3': { rows: 2, cols: 3, label: '3 × 2', hint: 'Controller, 6 Projektoren' },
+  '3x3': { rows: 3, cols: 3, label: '3 × 3', hint: 'Controller, 9 Projektoren' },
 };
 export const layoutOf = (o) => LAYOUTS[o?.layout] || LAYOUTS['1x1'];
 export const cellCount = (o) => (o?.solo ? 1 : layoutOf(o).rows * layoutOf(o).cols);
@@ -113,8 +167,9 @@ export function migrateProject(p) {
   if (!Array.isArray(p.playback?.items)) out.playback.items = p.playback?.src ? [{ src: p.playback.src, name: p.playback.name || p.playback.src.split(/[\\/]/).pop() }] : [];
   delete out.playback.src; delete out.playback.name;
   out.audio = { ...base.audio, ...(p.audio || {}) };
+  out.projectorTypes = Array.isArray(p.projectorTypes) ? p.projectorTypes : [];
   out.outputs = (p.outputs || base.outputs).map((o) => ({ ...o }));
   if (!out.outputs.some((o) => o.solo)) out.outputs.push({ ...base.outputs[2] });
-  out.projectors = (p.projectors || base.projectors).map((pj, i) => ({ ...base.projectors[i % 8], ...pj, color: base.projectors[i % 8].color }));
+  out.projectors = (p.projectors || base.projectors).slice(0, MAX_PROJECTORS).map((pj, i) => { const d = makeProjector(i); return { ...d, ...pj, color: pj.color || d.color }; });
   return out;
 }

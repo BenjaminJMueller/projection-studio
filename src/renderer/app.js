@@ -1,7 +1,7 @@
 // Hauptfenster: Zustand, Bedienlogik, Solver-Anbindung, Export.
 import { buildModel } from '../shared/scene.js';
-import { newProject, migrateProject, QUADRANT_NAMES, LAYOUTS, layoutOf, cellCount, cellName, arrangeOutput, quadrantRect } from '../shared/project.js';
-import { LENS_PRESETS, getLensPreset } from '../core/lenses.js';
+import { newProject, migrateProject, groupLabel, addProjector, addOutput, MAX_PROJECTORS, MAX_VIDEO_OUTPUTS, QUADRANT_NAMES, LAYOUTS, layoutOf, cellCount, cellName, arrangeOutput, quadrantRect } from '../shared/project.js';
+import { LENS_PRESETS, PROJECTOR_DB, OFFSET_FORMATS, offsetToBelow, lensFor } from '../core/lenses.js';
 import { projectPoint, suggestNextImageRegion } from '../core/solver.js';
 import { exportProjector } from '../core/export.js';
 import { View3D } from './view3d.js';
@@ -112,6 +112,7 @@ function runSolve(p) {
       width: p.resolution[0],
       height: p.resolution[1],
       lensId: p.lens,
+      lens: lensFor(p, S.project),
       mountMode: p.mountMode,
       previous: p.solution,
       positionPrior: p.positionPrior || null,
@@ -427,8 +428,14 @@ function projRow(p) {
 
 function renderProjList() {
   const ps = S.project.projectors;
-  $('#projListInner').replaceChildren(...ps.filter((p) => p.ring !== 'außen').map(projRow));
-  $('#projListOuter').replaceChildren(...ps.filter((p) => p.ring === 'außen').map(projRow));
+  // Gruppen in der Reihenfolge ihres ersten Projektors (im Gewölbe: Innenring, Außenring)
+  const groups = [...new Set(ps.map((p) => p.ring || ''))];
+  $('#projLists').replaceChildren(...groups.flatMap((g) => [
+    el('div', { class: 'side-label' }, groupLabel(g)),
+    el('div', { class: 'proj-list' }, ...ps.filter((p) => (p.ring || '') === g).map(projRow)),
+  ]));
+  const add = $('#btnAddProj');
+  add.hidden = ps.length >= MAX_PROJECTORS;
   const on = ps.filter((p) => p.enabled);
   const done = on.filter((p) => p.solution && isGood(S.results[p.id]?.quality)).length;
   $('#overall').replaceChildren(el('div', {}, `${done} von ${on.length} kalibriert`), el('div', { class: 'progress' }, el('i', { style: `width:${on.length ? (100 * done) / on.length : 0}%` })));
@@ -521,6 +528,12 @@ function mouseToProjector() {
   api.moveCursor(Math.round(d.bounds.x + (rc.x + rc.w / 2) * d.bounds.width), Math.round(d.bounds.y + (rc.y + rc.h / 2) * d.bounds.height));
 }
 
+/** „Projektor 1 bis 4“ bei durchgehender Folge, sonst „Projektoren 1, 3, 9“. */
+function numberList(ns) {
+  if (ns.length === 1) return `Projektor ${ns[0]}`;
+  const contiguous = ns.every((n, i) => !i || n === ns[i - 1] + 1);
+  return contiguous ? `Projektor ${ns[0]} bis ${ns[ns.length - 1]}` : `Projektoren ${ns.join(', ')}`;
+}
 function outputRows() {
   const opts = [['', 'Kein Bildschirm'], ...S.displays.map((d) => [d.id, `${d.label} · ${d.pixelSize.width} × ${d.pixelSize.height}`])];
   return S.project.outputs.map((o) => {
@@ -531,7 +544,7 @@ function outputRows() {
     const first = S.project.projectors.find((p) => p.output === o.id);
     const want = !o.solo && first ? [L.cols * first.resolution[0], L.rows * first.resolution[1]] : null;
     const mismatch = d && want && (d.pixelSize.width !== want[0] || d.pixelSize.height !== want[1]);
-    const sub = o.solo ? 'zeigt den gewählten Projektor allein' : ps.length ? `Projektor ${ps[0]} bis ${ps[ps.length - 1]}` : 'nicht belegt';
+    const sub = o.solo ? 'zeigt den gewählten Projektor allein' : ps.length ? numberList(ps) : 'nicht belegt';
     return el('div', { class: 'r stack' },
       el('div', { class: 'lbl', style: 'gap:10px' }, quadDiagram(o),
         el('span', {}, o.name, el('span', { class: 'sub' }, sub),
@@ -559,7 +572,7 @@ function modelRow() {
 
 function renderSetup() {
   const p = active();
-  const lens = getLensPreset(p.lens);
+  const lens = lensFor(p, S.project);
   const o = S.project.outputs.find((x) => x.id === p.output);
   const set = (fn, solve = false) => { fn(); if (solve) scheduleSolve(p); markDirty(); refresh(); };
   put('#paneSetup', 
@@ -567,15 +580,18 @@ function renderSetup() {
     group(modelRow()),
     gtitle('Bildschirme', infoBtn('Jeder Ausgang der Grafikkarte wird in Viertel geteilt, jedes Viertel geht an einen Projektor.')),
     group(...outputRows(),
+      S.project.outputs.filter((x) => !x.solo).length < MAX_VIDEO_OUTPUTS ? el('div', { class: 'r' }, el('div', { class: 'lbl' }, el('span', { class: 'sub' }, 'Weiterer Grafikkarten-Ausgang')),
+        el('div', { class: 'ctl' }, el('button', { class: 'btn', id: 'btnAddOutput', onclick: () => { const o = addOutput(S.project); if (o) { markDirty(); refresh(); toast(`${o.name} angelegt`); } } }, ic('plus', 14), 'Ausgang hinzufügen'))) : null,
       r('Maus springt mit', switchCtl(!!S.project.view.mouseFollow, (v) => { S.project.view.mouseFollow = v; markDirty(); refresh(); if (v) mouseToProjector(); }),
         { tip: 'Beim Wechsel des Projektors springt der Mauszeiger auf dessen Bild am Ausgang. So muss man die Maus auf den Projektionen nicht suchen.' })),
     gtitle(displayName(p)),
     group(
       r('Name', input(displayName(p), (v) => set(() => { p.name = v.trim() || `P${indexOf(p) + 1}`; }))),
       r('Verwenden', switchCtl(p.enabled, (v) => set(() => { p.enabled = v; }))),
+      r('Gruppe', groupCtl(p, set), { tip: 'Überschrift in der Liste links, z. B. Innenring oder Wand Nord. Projektoren mit gleicher Gruppe stehen zusammen.' }),
       r('Ausgang', select([...S.project.outputs.filter((x) => !x.solo).map((x) => [x.id, x.name]), ['', 'Keiner']], p.output, (v) => set(() => { p.output = v; }))),
       o && cellCount(o) > 1 ? r('Bildbereich', select(Array.from({ length: cellCount(o) }, (_, i) => [i, cellName(o, i)]), p.quadrant % cellCount(o), (v) => set(() => { p.quadrant = Number(v); }))) : null,
-      r('Auflösung', select([['1920x1080', '1920 × 1080'], ['1280x800', '1280 × 800'], ['1280x720', '1280 × 720'], ['3840x2160', '3840 × 2160']], p.resolution.join('x'), (v) => {
+      r('Auflösung', select(resolutionOptions(p), p.resolution.join('x'), (v) => {
         pushUndo();
         const [w, h] = v.split('x').map(Number);
         const sx = w / p.resolution[0], sy = h / p.resolution[1];
@@ -586,16 +602,123 @@ function renderSetup() {
       }), { tip: 'Auflösung des Signals, das der Beamer bekommt, nicht die native Panelauflösung.' }),
     ),
     group(
-      r('Objektiv', select(LENS_PRESETS.map((l) => [l.id, l.name]), p.lens, (v) => set(() => { p.lens = v; }, true)), { tip: lens.note }),
+      r('Projektor-Typ', typeSelect(p, (v) => {
+        if (v === '__new') return newProjectorType(p);
+        set(() => { p.lens = v; }, true);
+      }), { tip: lens.note }),
+      p.lens.startsWith('custom:') ? typeEditor(p) : null,
       r('Montage', select([['auto', 'Automatisch'], ['normal', 'Achse unter dem Bild'], ['flipped', 'Achse über dem Bild']], p.mountMode, (v) => set(() => { p.mountMode = v; }, true)),
         { tip: 'Kurzdistanz-Beamer projizieren komplett auf eine Seite der Objektivachse. Je nach Menü-Einstellung (Decke/Tisch) liegt sie über oder unter dem Bild. Automatisch prüft beides.' }),
     ),
+    S.project.projectors.length > 1 ? el('div', { class: 'act' }, el('span', { class: 'hint' }, S.confirmRemove === p.id ? 'Punkte, Feinkorrektur und Masken dieses Projektors gehen verloren.' : ''),
+      el('button', { class: `btn ${S.confirmRemove === p.id ? 'danger' : ''}`, id: 'btnRemoveProj', onclick: () => removeProjector(p) }, S.confirmRemove === p.id ? 'Wirklich entfernen' : 'Projektor entfernen …')) : null,
     more('setupAdv', 'TouchDesigner-Namen',
       group(
         r('Kamera', input(p.tdCamera, (v) => { p.tdCamera = v; markDirty(); }), { tip: 'Name des Camera COMP in TouchDesigner' }),
         r('Render', input(p.tdRender, (v) => { p.tdRender = v; markDirty(); }), { tip: 'Name des Render TOP, hinter den die Maske gehängt wird' }),
       )),
   );
+}
+
+const RESOLUTIONS = [[1920, 1080], [1920, 1200], [1280, 800], [1280, 720], [1024, 768], [3840, 2160]];
+function resolutionOptions(p) {
+  const list = RESOLUTIONS.map((r) => r.join('x'));
+  const spec = specOf(p);
+  if (spec && !list.includes(spec.native.join('x'))) list.unshift(spec.native.join('x'));
+  if (!list.includes(p.resolution.join('x'))) list.unshift(p.resolution.join('x'));
+  return list.map((k) => [k, `${k.replace('x', ' × ')}${spec && k === spec.native.join('x') ? ' (nativ)' : ''}`]);
+}
+function specOf(p) {
+  if (p.lens.startsWith('db:')) return PROJECTOR_DB.find((x) => x.id === p.lens.slice(3));
+  if (p.lens.startsWith('custom:')) return S.project.projectorTypes.find((x) => x.id === p.lens.slice(7));
+  return null;
+}
+/** Auswahl: allgemeine Voreinstellungen, Datenbank nach Hersteller, eigene Typen. */
+function typeSelect(p, onchange) {
+  const og = (label, opts) => el('optgroup', { label: tr(label) }, ...opts.map(([v, l]) => el('option', { value: v, selected: v === p.lens }, l)));
+  const makers = [...new Set(PROJECTOR_DB.map((x) => x.maker))];
+  return el('select', { onchange: (e) => onchange(e.target.value), 'aria-label': 'Projektor-Typ' },
+    og('Allgemein', LENS_PRESETS.map((l) => [l.id, l.name])),
+    ...makers.map((m) => og(m, PROJECTOR_DB.filter((x) => x.maker === m).map((x) => [`db:${x.id}`, `${x.maker} ${x.model}`]))),
+    og('Eigene', [...S.project.projectorTypes.map((x) => [`custom:${x.id}`, x.model || 'Eigener Typ']), ['__new', 'Neu aus Datenblatt …']]));
+}
+function newProjectorType(p) {
+  const base = specOf(p);
+  const t = {
+    id: `t${Date.now().toString(36)}`, maker: '', model: 'Eigener Projektor',
+    native: base ? [...base.native] : [...p.resolution], throw: base ? [...base.throw] : [1.2, 1.6], zoom: 'optisch',
+    axis: { kind: 'fixed', below: 0 }, offsetFormat: 'full', offsetValue: '100', source: '',
+  };
+  S.project.projectorTypes.push(t);
+  p.lens = `custom:${t.id}`;
+  S.ui = { ...(S.ui || {}), typeEdit: true };
+  scheduleSolve(p); markDirty(); refresh();
+}
+/** Datenblattwerte eines eigenen Typs. Gilt für alle Projektoren mit diesem Typ. */
+function typeEditor(p) {
+  const t = specOf(p);
+  if (!t) return null;
+  const users = S.project.projectors.filter((x) => x.lens === p.lens);
+  const changed = () => { for (const x of users) scheduleSolve(x); markDirty(); refresh(); };
+  const num = (v, fn, attrs = {}) => input(v, (x) => { if (Number.isFinite(x) && x > 0) { fn(x); changed(); } }, 'number', { step: 'any', ...attrs });
+  const shift = t.axis.kind === 'shift';
+  const pct = (x) => Math.round(x * 1000) / 10;
+  return more('typeEdit', 'Datenblatt', group(
+    r('Name', input(t.model, (v) => { t.model = v.trim() || 'Eigener Projektor'; markDirty(); refresh(); })),
+    r('Native Auflösung', el('div', { class: 'pair' }, num(t.native[0], (x) => { t.native[0] = Math.round(x); }, { 'aria-label': 'Breite' }), el('span', {}, '×'), num(t.native[1], (x) => { t.native[1] = Math.round(x); }, { 'aria-label': 'Höhe' }))),
+    r('Wurfverhältnis', el('div', { class: 'pair' }, num(t.throw[0], (x) => { t.throw[0] = x; t.throw[1] = Math.max(t.throw[1], x); }, { 'aria-label': 'von' }), el('span', {}, 'bis'), num(t.throw[1], (x) => { t.throw[1] = Math.max(x, t.throw[0]); }, { 'aria-label': 'bis' })),
+      { tip: 'Abstand geteilt durch Bildbreite, wie im Datenblatt (Wide bis Tele). Bei festem Objektiv beide Werte gleich.' }),
+    r('Zoom', select([['optisch', 'Optisch'], ['digital', 'Digital'], ['fest', 'Kein Zoom']], t.zoom, (v) => { t.zoom = v; changed(); })),
+    r('Objektivachse', select([['fixed', 'Fester Offset'], ['shift', 'Lens Shift']], t.axis.kind, (v) => {
+      t.axis = v === 'shift' ? { kind: 'shift', v: [-0.5, 0.5], h: [-0.1, 0.1] } : { kind: 'fixed', below: offsetToBelow(t.offsetFormat || 'full', t.offsetValue || '100') || 0 };
+      changed();
+    }), { tip: 'Fester Offset: Beamer ohne Lens Shift, das Bild liegt immer gleich zur Objektivachse. Lens Shift: Bild lässt sich verschieben, dann den Bereich aus dem Datenblatt eintragen.' }),
+    shift ? [
+      r('Shift vertikal', el('div', { class: 'pair' }, num(pct(t.axis.v[0]) || 0.0001, (x) => { t.axis.v[0] = -Math.abs(x) / 100; }, { 'aria-label': 'nach unten, Prozent' }), el('span', {}, '% bis +'),
+        num(pct(t.axis.v[1]) || 0.0001, (x) => { t.axis.v[1] = x / 100; }, { 'aria-label': 'nach oben, Prozent' }), el('span', {}, '%')),
+        { tip: 'Verschiebung der Bildmitte in Prozent der Bildhöhe, nach unten und nach oben. Bei ±50 % beide Felder 50.' }),
+      r('Shift horizontal', el('div', { class: 'pair' }, el('span', {}, '±'), num(pct(t.axis.h[1]) || 0.0001, (x) => { t.axis.h = [-x / 100, x / 100]; }, { 'aria-label': 'Prozent' }), el('span', {}, '%'))),
+    ] : [
+      r('Offset-Angabe', select(OFFSET_FORMATS, t.offsetFormat || 'full', (v) => { t.offsetFormat = v; t.offsetValue = v === 'ratio' ? '10:-1' : v === 'half' ? '100' : '100'; t.axis.below = offsetToBelow(v, t.offsetValue); changed(); }),
+        { tip: 'Hersteller geben den Offset unterschiedlich an. 100 % volle Bildhöhe bzw. 0 % halbe Bildhöhe heißt: Achse an der Bildunterkante.' }),
+      r('Offset', input(t.offsetValue ?? '100', (v) => { const b = offsetToBelow(t.offsetFormat || 'full', v); if (Number.isFinite(b)) { t.offsetValue = v; t.axis.below = b; changed(); } else toast('Offset nicht lesbar'); }, 'text', { 'aria-label': 'Offset' }),
+        { sub: `Achse ${t.axis.below >= 0 ? `${nf(t.axis.below * 100, 0)} % der Bildhöhe unter dem Bild` : `${nf(-t.axis.below * 100, 0)} % über der Bildunterkante`}` }),
+    ],
+    r('Quelle', input(t.source || '', (v) => { t.source = v; markDirty(); }, 'text', { placeholder: 'z. B. Link zum Datenblatt' })),
+  ));
+}
+
+/** Gruppe wählen oder neu benennen: Liste der vorhandenen plus freie Eingabe. */
+function groupCtl(p, set) {
+  const groups = [...new Set(S.project.projectors.map((x) => x.ring || ''))];
+  const id = 'groupNames';
+  return el('span', { style: 'display:contents' },
+    input(groupLabel(p.ring), (v) => set(() => {
+      const t = v.trim();
+      p.ring = t === tr('Innenring') || t === 'Innenring' ? 'innen' : t === tr('Außenring') || t === 'Außenring' ? 'außen' : t;
+    }), 'text', { list: id, 'aria-label': 'Gruppe' }),
+    el('datalist', { id }, ...groups.map((g) => el('option', { value: groupLabel(g) }))));
+}
+
+function removeProjector(p) {
+  if (S.confirmRemove !== p.id) {
+    S.confirmRemove = p.id;
+    refresh();
+    setTimeout(() => { if (S.confirmRemove === p.id) { S.confirmRemove = null; refresh(); } }, 4000);
+    return;
+  }
+  S.confirmRemove = null;
+  const ps = S.project.projectors;
+  const i = ps.indexOf(p);
+  ps.splice(i, 1);
+  delete S.results[p.id];
+  delete S.blendImages[p.id];
+  undoStack.length = redoStack.length = 0; // Schnappschüsse beziehen sich auf die alte Liste
+  S.activeId = ps[Math.min(i, ps.length - 1)].id;
+  S.activePointId = null;
+  markDirty();
+  refresh();
+  toast(`${displayName(p)} entfernt`);
 }
 
 // ---------- 2 Kalibrieren
@@ -1333,7 +1456,7 @@ function handleKey(e) {
   if ((e.key === 'Delete' || e.key === 'Backspace') && pt) { deleteActivePoint(); return true; }
   if (e.key === ' ' && items().length) { togglePlay(); return true; }
   if (e.key === 'Escape') { S.activePointId = null; S.pendingRepick = false; S.pickCenter = false; S.activeMaskId = null; $('#helpMenu').classList.add('hidden'); refresh(); return true; }
-  if (/^[1-8]$/.test(e.key) && !e.ctrlKey && !e.metaKey) {
+  if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey) {
     const target = S.project.projectors[Number(e.key) - 1];
     if (target) selectProjector(target.id);
     return true;
@@ -1638,7 +1761,7 @@ function renderOnboarding() {
 function toggleHelp() {
   const m = $('#helpMenu');
   if (!m.classList.contains('hidden')) return m.classList.add('hidden');
-  const keys = [[['Klick'], 'Punkt im Modell setzen'], [['←', '→', '↑', '↓'], 'Fadenkreuz verschieben'], [['⇧'], 'mit Pfeil: 10 Pixel'], [['Tab'], 'Nächster Punkt'], [['Entf'], 'Punkt löschen'], [['1', '–', '8'], 'Projektor wählen'], [['Esc'], 'Auswahl aufheben'], [[api.platform === 'darwin' ? '⌘' : 'Strg', 'Z'], 'Rückgängig']];
+  const keys = [[['Klick'], 'Punkt im Modell setzen'], [['←', '→', '↑', '↓'], 'Fadenkreuz verschieben'], [['⇧'], 'mit Pfeil: 10 Pixel'], [['Tab'], 'Nächster Punkt'], [['Entf'], 'Punkt löschen'], [['1', '–', '9'], 'Projektor wählen'], [['Esc'], 'Auswahl aufheben'], [[api.platform === 'darwin' ? '⌘' : 'Strg', 'Z'], 'Rückgängig']];
   m.replaceChildren(
     el('button', { role: 'menuitem', onclick: () => { m.classList.add('hidden'); showOnboarding(0); } }, ic('book'), 'Einführung anzeigen'),
     el('button', { role: 'menuitem', onclick: () => { m.classList.add('hidden'); chooseModel(); } }, ic('model'), '3D-Modell laden …'),
@@ -1664,6 +1787,15 @@ $('#btnUndo').onclick = undo;
 $('#btnRedo').onclick = redo;
 $('#btnHelp').onclick = toggleHelp;
 $('#btnOutputs').onclick = () => toggleOutputs();
+$('#btnAddProj').onclick = () => {
+  const p = addProjector(S.project);
+  if (!p) return toast(`Höchstens ${MAX_PROJECTORS} Projektoren.`);
+  S.activeId = p.id;
+  markDirty();
+  setMode('setup');
+  refresh();
+  toast(p.output ? `${displayName(p)} hinzugefügt, ${outputLabel(p)}` : `${displayName(p)} hinzugefügt. Alle Felder sind belegt, bitte einen Ausgang wählen.`);
+};
 $('#btnPlayTb').onclick = () => togglePlay();
 $('#btnFocus').onclick = () => view.focus();
 document.querySelectorAll('#modes button').forEach((b) => { b.onclick = () => setMode(b.dataset.mode); });

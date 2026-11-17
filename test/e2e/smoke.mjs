@@ -244,6 +244,22 @@ await win.evaluate(() => window.__app.toggleOutputs(false));
 
 const sol = await win.evaluate(() => window.__app.S.project.projectors.slice(0, 4).map((p) => ({ id: p.id, rms: p.solution.rms, center: p.solution.center, quality: window.__app.S.results[p.id]?.quality })));
 console.log(JSON.stringify({ result, sol }, null, 1));
+// Mehr Projektoren: neunten anlegen, Ausgang C, Typ aus der Datenbank, eigener Typ
+await win.click('#modes button[data-mode=setup]');
+await win.click('#btnAddOutput');
+await win.click('#btnAddProj');
+await win.waitForTimeout(300);
+const added = await win.evaluate(() => { const { S } = window.__app; const p = S.project.projectors[8]; return { n: S.project.projectors.length, id: p.id, output: p.output, q: p.quadrant, outputs: S.project.outputs.map((o) => o.id) }; });
+console.log('Neuer Projektor:', JSON.stringify(added));
+if (!(added.n === 9 && added.output === 'C')) errors.push('error: Projektor hinzufügen ' + JSON.stringify(added));
+await win.evaluate(() => { const { S, refresh } = window.__app; const p = S.project.projectors[8]; p.ring = 'Wand Nord'; p.lens = 'db:benq-mw632st'; p.resolution = [1280, 800]; refresh(); });
+await win.waitForTimeout(400);
+await win.screenshot({ path: path.join(outDir, '11-neunter-projektor.png') });
+await win.selectOption('#paneSetup select[aria-label="Projektor-Typ"]', '__new');
+await win.waitForTimeout(400);
+await win.screenshot({ path: path.join(outDir, '12-eigener-typ.png') });
+const custom = await win.evaluate(() => window.__app.S.project.projectors[8].lens);
+if (!custom.startsWith('custom:')) errors.push('error: eigener Typ ' + custom);
 console.log('Konsolen-Fehler/Warnungen:', errors.length ? errors : 'keine');
 await app.close();
 if (errors.some((e) => e.startsWith('pageerror') || e.startsWith('error'))) process.exit(1);
