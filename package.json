@@ -59,6 +59,10 @@
       ],
       "category": "public.app-category.graphics-design",
       "identity": "-",
+      "extendInfo": {
+        "NSCameraUsageDescription": "The camera is used to calibrate projectors automatically with test patterns.",
+        "NSMicrophoneUsageDescription": "The microphone is used to measure the speakers for room tuning."
+      },
       "artifactName": "Projection-Studio-mac.${ext}"
     },
     "win": {

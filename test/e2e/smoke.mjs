@@ -146,6 +146,67 @@ await win.evaluate(() => { window.__app.S.project.view.outputMode = 'grid'; wind
 await outWin.waitForTimeout(1500);
 await outWin.screenshot({ path: path.join(outDir, '07-ausgang-A-raster.png') });
 
+// Kamera-Kalibrierung mit simulierter Kamera: P2 vergessen, über P1 als Bezug neu bestimmen
+await win.click('#modes button[data-mode=calibrate]');
+await win.evaluate(async (simUrl) => {
+  const { makeSimSource } = await import(simUrl);
+  const { S, camcal, refresh } = window.__app;
+  const [ref, tgt, , p4] = S.project.projectors;
+  window.__truth = JSON.parse(JSON.stringify(tgt.solution));
+  const src = makeSimSource(S.model, { [ref.id]: { solution: ref.solution, resolution: ref.resolution }, [tgt.id]: { solution: window.__truth, resolution: tgt.resolution }, [p4.id]: { solution: p4.solution, resolution: p4.resolution } });
+  window.__sim = src;
+  camcal.useSource(src);
+  tgt.points = []; tgt.solution = null;
+  S.activeId = 'P2';
+  refresh();
+}, new URL('./simCamera.js', import.meta.url).href);
+await win.evaluate(() => window.__app.camcal.open('P2'));
+await win.waitForSelector('#camSheet:not(.hidden) #btnCamMeasure:not([disabled])', { timeout: 20000 });
+await win.waitForTimeout(500);
+await win.screenshot({ path: path.join(outDir, '14-kamera-1.png') });
+await outWin.screenshot({ path: path.join(outDir, '14-kamera-fokusbild.png') });
+const tCam = Date.now();
+await win.click('#btnCamMeasure');
+await win.waitForTimeout(1500);
+await outWin.screenshot({ path: path.join(outDir, '14-kamera-muster.png') });
+await win.waitForSelector('#btnCamApply:not([disabled])', { timeout: 180000 });
+await win.waitForTimeout(400);
+await win.screenshot({ path: path.join(outDir, '14-kamera-2.png') });
+const first = await win.evaluate(() => window.__app.camcal.state.result.report.filled);
+// zweiter Kamera-Standort: zwischen P2 und P4, Bezug P4
+await win.evaluate(() => window.__sim.aimAt('P2', 'P4'));
+await win.click('#btnCamAnother');
+await win.selectOption('#camSheet select', 'P4');
+await win.waitForSelector('#btnCamMeasure:not([disabled])');
+await win.click('#btnCamMeasure');
+await win.waitForSelector('#btnCamApply:not([disabled])', { timeout: 180000 });
+await win.waitForTimeout(400);
+await win.screenshot({ path: path.join(outDir, '14-kamera-2b.png') });
+const second = await win.evaluate(() => ({ filled: window.__app.camcal.state.result.report.filled, sessions: window.__app.camcal.state.sessions.length, msg: window.__app.camcal.state.message }));
+console.log('Abdeckung:', first, '→', JSON.stringify(second));
+if (!(second.sessions === 2 && second.filled > first)) errors.push('error: zweiter Kamera-Standort ' + JSON.stringify(second));
+await win.click('#btnCamApply');
+await win.waitForFunction(() => window.__app.S.project.projectors[1].solution, null, { timeout: 30000 });
+const camRes = await win.evaluate(async () => {
+  const { projectPoint } = await import('../core/solver.js');
+  const { S } = window.__app;
+  const p = S.project.projectors[1], pos = S.model.geometry.attributes.position.array;
+  let se = 0, n = 0, worst = 0;
+  for (let i = 0; i < pos.length; i += 3 * 29) {
+    const X = [pos[i], pos[i + 1], pos[i + 2]];
+    const a = projectPoint(window.__truth, X);
+    if (a.z <= 0 || a.u < 0 || a.v < 0 || a.u >= p.resolution[0] || a.v >= p.resolution[1]) continue;
+    const b = projectPoint(p.solution, X);
+    const e = Math.hypot(a.u - b.u, a.v - b.v);
+    se += e * e; n++; worst = Math.max(worst, e);
+  }
+  return { points: p.autoPoints.length, rms: Math.sqrt(se / n), worst, fit: p.solution.rms, mirror: p.solution.mirror, truthMirror: window.__truth.mirror };
+});
+console.log('Kamera-Kalibrierung:', JSON.stringify(camRes), `${((Date.now() - tCam) / 1000).toFixed(1)} s`);
+if (!(camRes.points > 30 && camRes.rms < 3 && camRes.mirror === camRes.truthMirror)) errors.push('error: Kamera-Kalibrierung ' + JSON.stringify(camRes));
+await win.screenshot({ path: path.join(outDir, '14-kamera-3.png') });
+await win.evaluate(() => { const a = window.__app; a.S.activeId = 'P1'; a.S.project.view.outputMode = 'grid'; a.refresh(); });
+
 // Videowiedergabe: Testvideo auf dem Modell, Zeit muss laufen
 await win.evaluate((f) => { window.__app.setVideo(f); }, path.join(root, 'test/fixtures/testvideo.mp4'));
 await win.waitForFunction(() => window.__app.S.videoInfo?.duration > 0, null, { timeout: 15000 });

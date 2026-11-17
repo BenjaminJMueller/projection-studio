@@ -21,6 +21,8 @@ export function makeProjector(i, extra = {}) {
     tdCamera: i === 0 ? 'Projektorkamera' : `Kamera_P${i + 1}`,
     tdRender: i === 0 ? 'Projektion' : `Projektion_P${i + 1}`,
     points: [],
+    autoPoints: [], // Punktpaare aus der Kamera-Kalibrierung (nicht im Rückgängig-Verlauf, zu groß)
+    autoCal: null,
     nextPointId: 1,
     warp: null, // Feinkorrektur-Gitter (siehe shared/warp.js), null = keine
     solution: null,

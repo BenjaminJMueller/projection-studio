@@ -8,6 +8,7 @@ import { PlaylistPlayer } from '../shared/playlistPlayer.js';
 import { isIdentity, makeWarp } from '../shared/warp.js';
 import { drawWarpOverlay } from '../shared/warpdraw.js';
 import { tr, setLang } from '../shared/i18n.js';
+import { stripeRuns, focusValue } from '../shared/graycode.js';
 
 // Rohe Farbwerte durchreichen: Video, Masken und Testbilder werden 1:1 ausgegeben.
 THREE.ColorManagement.enabled = false;
@@ -25,7 +26,7 @@ renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
 maskCanvas.style.display = 'none';
 const ov = ovCanvas.getContext('2d');
 
-const st = { project: null, activeId: null, activePointId: null, modelPath: null, model: null, blend: {}, blendImgs: {}, mouse: null, play: null, warpEdit: false, markers: true, activeHandle: null, activePin: null };
+const st = { pattern: null, project: null, activeId: null, activePointId: null, modelPath: null, model: null, blend: {}, blendImgs: {}, mouse: null, play: null, warpEdit: false, markers: true, activeHandle: null, activePin: null };
 
 // ---------------- GPU-Zusammensetzung pro Projektor: 3D-Bild -> Feinkorrektur -> Maske
 const rts = new Map(); // projectorId -> WebGLRenderTarget
@@ -289,6 +290,7 @@ function drawFrame(full = true) {
     ov.clearRect(0, 0, ovCanvas.width, ovCanvas.height);
   }
   if (!st.project) return;
+  if (st.pattern) { if (full) drawPattern(Wc, Hc); return; }
   const mode = st.project.view.outputMode;
   const showMask = st.project.view.showMask;
   const dpr = renderer.getPixelRatio();
@@ -384,6 +386,51 @@ function drawFrame(full = true) {
   }
 }
 
+// ---------------- Testmuster für die Kamera-Kalibrierung
+// Pixelgenau im Eingangssignal des Projektors, ohne Feinkorrektur und Maske. Alle anderen Projektoren
+// bleiben schwarz, damit nur dieser Projektor Licht gibt.
+const focusCache = new Map();
+function focusImage(W, H, shift) {
+  const k = `${W}x${H}/${shift}`;
+  let c = focusCache.get(k);
+  if (c) return c;
+  c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d'), img = g.createImageData(W, H);
+  for (let v = 0; v < H; v++) for (let u = 0; u < W; u++) {
+    const i = (v * W + u) * 4, val = focusValue(u, v, shift) * 255;
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = val; img.data[i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  focusCache.clear();
+  focusCache.set(k, c);
+  return c;
+}
+function drawPattern(Wc, Hc) {
+  const pt = st.pattern;
+  ov.setTransform(1, 0, 0, 1, 0, 0);
+  ov.fillStyle = '#000';
+  ov.fillRect(0, 0, Wc, Hc);
+  const mine = myProjectors().filter(({ p }) => pt.projectors.includes(p.id));
+  for (const { p, rect } of mine) {
+    const x = rect.x * Wc, y = rect.y * Hc, w = rect.w * Wc, h = rect.h * Hc;
+    const [W, H] = p.resolution, sx = w / W, sy = h / H;
+    const f = pt.frame, lv = Math.round(pt.level ?? 255);
+    ov.fillStyle = `rgb(${lv},${lv},${lv})`;
+    if (f.kind === 'focus') {
+      ov.imageSmoothingEnabled = false;
+      ov.drawImage(focusImage(W, H, pt.shift), x, y, w, h);
+    } else if (f.kind !== 'black') {
+      for (const [a, b] of stripeRuns(f, f.axis === 'y' ? H : W, pt.shift)) {
+        if (f.axis === 'y') { const y0 = Math.round(y + a * sy), y1 = Math.round(y + b * sy); ov.fillRect(Math.round(x), y0, Math.round(w), y1 - y0); }
+        else { const x0 = Math.round(x + a * sx), x1 = Math.round(x + b * sx); ov.fillRect(x0, Math.round(y), x1 - x0, Math.round(h)); }
+      }
+    }
+  }
+  // Rückmeldung, sobald das Bild auf dem Schirm ist (nächster Bildwechsel)
+  requestAnimationFrame(() => api.sendOutputEvent({ type: 'patternShown', seq: pt.seq, outputId, mine: mine.map(({ p }) => p.id) }));
+}
+
 /** Feinkorrektur: verzerrte Linien, Gitterpunkte und freie Punkte. */
 function drawWarpGrid(wp, w, h, dpr) {
   drawWarpOverlay(ov, wp, w, h, 1.6 * dpr, { handle: st.activeHandle, pin: st.activePin });
@@ -443,6 +490,9 @@ api.onStateUpdate(async (msg) => {
     await ensureModel(msg.modelPath);
     syncVideo();
     draw();
+  } else if (msg.type === 'pattern') {
+    st.pattern = msg.pattern;
+    draw(true);
   } else if (msg.type === 'blend') {
     st.blendImgs = {};
     for (const [id, url] of Object.entries(msg.images || {})) {

@@ -8,6 +8,8 @@ Projection Studio ist ein Werkzeug für 3D-Projection-Mapping auf macOS und Wind
 
 > **Beta.** Projection Studio ist an einem konkreten Aufbau entstanden und dort erprobt, auf anderen Systemen aber noch wenig. Fehler und Lücken sind wahrscheinlich, siehe [Funktionsumfang und Grenzen](#funktionsumfang-und-grenzen). Wenn es trotzdem jemandem bei einem eigenen Projekt weiterhilft, freue ich mich.
 
+**Herunterladen:** [macOS (.dmg)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-mac.dmg) · [Windows, Installer (.exe)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-Setup.exe) · [Windows, ohne Installation (.exe)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-Portable.exe) · [Hinweise zur Installation](#installation)
+
 ## Hintergrund
 
 Projection Studio ist im Rahmen der Lehre entstanden. Anlass war eine Installation auf einer Gewölbedecke, die mit TouchDesigner bespielt wird:
@@ -75,9 +77,9 @@ Zum Kalibrieren gibt es zusätzlich einen **Testausgang**. Dort lässt sich ein 
 ## Arbeitsablauf
 
 1. **Einrichten.** Modell laden, Projektoren aktivieren, Objektiv, Spiegel, Auflösung, Ausgang und Bildviertel festlegen.
-2. **Kalibrieren.** Projektor wählen, markante Punkte im Modell anklicken und im Projektionsbild treffen, per Maus am Projektor, in der Vorschau oder mit den Pfeiltasten (1 px, mit ⇧ 10 px). Restfehler über den Reiter *Feinkorrektur* ausgleichen.
+2. **Kalibrieren.** Projektor wählen, markante Punkte im Modell anklicken und im Projektionsbild treffen, per Maus am Projektor, in der Vorschau oder mit den Pfeiltasten (1 px, mit ⇧ 10 px). Oder mit Kamera und Testmustern (siehe unten). Restfehler über den Reiter *Feinkorrektur* ausgleichen.
 3. **Überblenden.** Masken berechnen, Grenzwinkel und Übergänge anpassen, eigene Masken zeichnen.
-4. **Ausgabe.** Testbilder oder Video auf den Projektoren, Export oder Live-Verbindung zu TouchDesigner.
+4. **Ausgabe.** Testbilder oder Video-Playlist auf den Projektoren, Ton auf die Lautsprecher, Raumeinmessung, Export oder Live-Verbindung zu TouchDesigner.
 
 <p>
   <img src="docs/screenshots/04-blending.png" width="49%" alt="Überblenden">
@@ -90,16 +92,18 @@ Projekte werden automatisch gesichert, alle Schritte lassen sich rückgängig ma
 
 | | |
 |---|---|
-| Projektoren | bis zu 8 pro Projekt, einzeln abschaltbar. Die Zahl ist fest, mehr als 8 sind derzeit nicht möglich. |
-| Ausgänge | 2 Ausgänge für Video-Wall-Controller (HDMI A, HDMI B) und 1 Testausgang für einen direkt angeschlossenen Projektor, alle auf demselben Rechner |
-| Controller-Modi | *Ganz*, *2 × 2*, *2 nebeneinander*, *2 übereinander*, *3 nebeneinander*, *4 nebeneinander*, *4 übereinander*. Alle Felder eines Ausgangs sind gleich groß. |
-| Auflösung je Projektor | 1920 × 1080, 1280 × 800, 1280 × 720 oder 3840 × 2160 (Auflösung des Signals, nicht des Panels) |
+| Projektoren | bis zu 16 pro Projekt, einzeln abschaltbar, frei benennbare Gruppen (z. B. Innenring, Außenring) |
+| Ausgänge | bis zu 4 Ausgänge für Video-Wall-Controller (HDMI A bis D) und 1 Testausgang für einen direkt angeschlossenen Projektor, alle auf demselben Rechner |
+| Controller-Modi | *Ganz*, *2 × 2*, *2 nebeneinander*, *2 übereinander*, *3 nebeneinander*, *4 nebeneinander*, *4 übereinander*, *3 × 2*, *3 × 3*. Alle Felder eines Ausgangs sind gleich groß. |
+| Auflösung je Projektor | 1920 × 1080, 1920 × 1200, 1280 × 800, 1280 × 720, 1024 × 768, 3840 × 2160 oder die native des Projektor-Typs (Auflösung des Signals) |
 | 3D-Modell | nur OBJ, Materialien und Texturen werden ignoriert. Die Demo hat rund 16 000 Dreiecke, deutlich größere Modelle sind nicht erprobt. |
-| Objektive | Voreinstellungen für Epson EB-535W, Standardbeamer mit festem Offset, Lens Shift zentriert, sowie *Unbekannt*. Keine Modellierung von Objektivverzeichnung, Reste gleicht die Feinkorrektur aus. |
-| Kalibrierung | ab 4 Punktpaaren, 6 gut verteilte sind ideal |
+| Projektor-Typen | Datenbank mit geprüften Datenblattwerten (Epson EB-535W, BenQ MW632ST, Optoma GT1080HDR, Epson EB-L1050U, Panasonic PT-VMZ60), eigene Typen aus dem Datenblatt (native Auflösung, Wurfverhältnis, Zoom, fester Offset oder Lens Shift), dazu allgemeine Voreinstellungen. Keine Modellierung von Objektivverzeichnung, Reste gleicht die Feinkorrektur aus. |
+| Kalibrierung | von Hand ab 4 Punktpaaren (6 gut verteilte sind ideal) oder mit Kamera und Testmustern, siehe unten |
 | Feinkorrektur | Gitter 2 bis 33 Stützpunkte je Richtung, optional Bézier-Anfasser, bis zu 200 freie Punkte je Projektor |
 | Masken | automatische Überblendung, eigene Masken als Vielecke mit weicher Kante |
-| Video | Formate, die Chromium abspielt: H.264 und AAC in MP4/MOV, VP8, VP9 und AV1 in WebM/MKV. H.265/HEVC nur, wenn das System es in Hardware dekodiert. ProRes, HAP, DXV und Bildsequenzen werden nicht unterstützt. Ton wird nicht ausgegeben. Die mögliche Auflösung hängt von Decoder und Grafikkarte ab. |
+| Video | Playlist, Start/Pause mit Leertaste, Bildrate einstellbar (frei, 24, 25, 30, 50, 60), Anzeige der aktuellen Bildrate. Formate, die Chromium abspielt: H.264 und AAC in MP4/MOV, VP8, VP9 und AV1 in WebM/MKV. H.265/HEVC nur, wenn das System es in Hardware dekodiert. ProRes, HAP, DXV und Bildsequenzen werden nicht unterstützt. Zwischen zwei Videos der Playlist kann ein Bild hängen bleiben. Die mögliche Auflösung hängt von Decoder und Grafikkarte ab. |
+| Ton | Tonspur des Videos auf bis zu 32 Lautsprecher, Zuordnung der Kanäle, Gesamt- und Einzelpegel mit Pegelanzeige, Audiogerät, Sample-Rate und Puffergröße wählbar. Kein ASIO: unter Windows über WASAPI, unter macOS über Core Audio. |
+| Raumeinmessung | Sweep über alle Lautsprecher an mehreren Messstellen, gleicht Laufzeit, Pegel und Klang (bis 8 Filter je Lautsprecher) für die ganze Liegefläche an, ein- und ausschaltbar. Mikrofon: Smartphone per QR-Code im selben WLAN oder Messmikrofon an einem Audio-Interface. |
 | TouchDesigner | Export (JSON, Masken als PNG, GLSL-Shader, Python-Skript) und Live-Verbindung per OSC |
 | Sprachen | Deutsch (Standard), Englisch |
 | Systeme | macOS 11 oder neuer (Apple Silicon und Intel), Windows 10/11 64 Bit; Grafikkarte mit WebGL 2 |
@@ -108,19 +112,27 @@ Bekannte Grenzen:
 
 - Die Mac-App ist nicht von Apple signiert und beglaubigt, beim ersten Start ist ein Umweg nötig (siehe unten).
 - Kein automatisches Update, solange das Repository privat ist.
-- Die Leistung mit 8 Projektoren an 2 × 4K ist auf dem Zielrechner noch nicht gemessen. Die App zeigt die Bildrate je Ausgang an.
+- Die Leistung mit 8 Projektoren an 2 × 4K (und erst recht mit 16) ist auf dem Zielrechner noch nicht gemessen. Die App zeigt die Bildrate je Ausgang an.
 - *Maus springt mit* und der Wechsel zwischen Bildschirmen sind auf echter Hardware unter macOS und Windows noch nicht erprobt.
 - Das Zusammenspiel mit TouchDesigner ist mit einem Nachbau der TD-Schnittstelle getestet, an einer echten Installation nur teilweise.
-- Keine kamerabasierte Autokalibrierung. Auch für flache Leinwände braucht es ein (einfaches) OBJ-Modell.
+- Kamera-Kalibrierung und Raumeinmessung sind mit simulierten Kamerabildern bzw. Aufnahmen getestet, an der echten Installation noch nicht.
+- Raumeinmessung mit dem Smartphone: Handy-Mikrofone sind unter etwa 100 Hz und über 10 kHz ungenau, korrigiert wird deshalb nur dazwischen. Das Handy fragt beim ersten Öffnen einmal nach dem selbst erstellten Zertifikat.
+- Auch für flache Leinwände braucht es ein (einfaches) OBJ-Modell.
 - Mehrere Rechner im Verbund werden nicht unterstützt.
 
-## Herunterladen
+## Kalibrierung mit Kamera
 
-Die aktuelle Version wird bei jeder Änderung automatisch gebaut:
+Statt Punkte von Hand zu setzen, kann eine Webcam (z. B. Logitech StreamCam) einen Projektor vermessen. Pro Projektor zeigt der Assistent *Mit Kamera kalibrieren …* (Schritt *Kalibrieren*):
 
-- [macOS (.dmg)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-mac.dmg)
-- [Windows, Installer (.exe)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-Setup.exe)
-- [Windows, ohne Installation (.exe)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-Portable.exe)
+1. **Ausrichten.** Der Projektor und ein schon kalibrierter Nachbar zeigen ein Schachbrett. Die Kamera wird fest aufgestellt, so dass sie möglichst viel vom Projektor und einen Teil des Nachbarn sieht. Eine Schärfeanzeige mit Bestwert hilft beim Scharfstellen.
+2. **Messen.** Belichtung, Fokus und Weißabgleich werden festgestellt, soweit die Kamera das erlaubt. Dann zeigen beide Projektoren nacheinander Streifenmuster (Gray-Code mit Umkehrung, etwa 15 Sekunden je Projektor). Aus dem Nachbarn ergibt sich der Standort der Kamera, aus dem Projektor die Punktpaare für den Solver.
+3. **Ergebnis.** Fehler, Abdeckung des Projektorbilds und eine Schärfekarte. Sieht die Kamera nicht alles, kommt ein weiterer Standort dazu; die Punkte aller Standorte werden zusammen verwendet. Die Kamera-Punkte lassen sich mit Punkten von Hand ergänzen.
+
+Unschärfe wird an den Mustern selbst erkannt: Feine Streifen haben nur dann vollen Kontrast, wenn Kamera und Projektor scharf sind, gemessen bei einer Streifenbreite, die zum Kameraabstand passt. Ist das Bild unscharf, stellt die Kamera kurz neu scharf und misst noch einmal. Hilft das nicht, hält der Assistent an, zeigt das Schachbrett und leitet zum Fokusring am Projektor an, mit Live-Anzeige. Bewegt sich die Kamera oder ändert sich das Licht während der Messung, wird das erkannt und wiederholt.
+
+Grenzen: Der erste Projektor wird von Hand kalibriert, die Kamera braucht einen kalibrierten Projektor als Bezug. Fehler des Bezugs wandern in die folgenden Projektoren. Die Verzeichnung des Kameraobjektivs wird nicht modelliert. Wie weit sich Belichtung und Fokus feststellen lassen, hängt von Kamera und System ab (unter macOS oft eingeschränkt); dann den Raum abdunkeln. In der Simulation an der Gewölbedecke lag der Fehler bei etwa 0,5 px mit zwei Kamera-Standorten.
+
+## Installation
 
 Ältere Stände liegen unter [Releases](https://github.com/BenjaminJMueller/projection-studio/releases). Die Versionsnummer steht im Menü *Hilfe*.
 

@@ -11,6 +11,7 @@ import { makeBrowserStub } from './stub.js';
 import { icon, hydrateIcons } from './icons.js';
 import { fileUrl, targetTime, playState, totalDuration, locate, startOf, seekState } from '../shared/playback.js';
 import { createTuning } from './tuning.js';
+import { createCamcal } from './camcal.js';
 import { peakingResponse } from '../shared/roomeq.js';
 import { AudioEngine, MAX_SPEAKERS, SOURCE_CHANNELS, SAMPLE_RATES, BUFFER_SIZES, speakerAt } from './audio.js';
 import { defaultWarp, resizeWarp, isIdentity, inverse, gridBase, touchDesignerShader, makeWarp, GRID_SIZES, minJacobian, setBezierHandle } from '../shared/warp.js';
@@ -110,7 +111,10 @@ function runSolve(p) {
     seq,
     projectorId: p.id,
     req: {
-      points: p.points.filter((x) => x.world && x.image).map((x) => ({ id: x.id, world: x.world, image: x.image, enabled: x.enabled })),
+      points: [
+        ...p.points.filter((x) => x.world && x.image).map((x) => ({ id: x.id, world: x.world, image: x.image, enabled: x.enabled })),
+        ...(p.autoPoints || []).map((x, i) => ({ id: `K${i + 1}`, world: x.world, image: x.image, enabled: true })),
+      ],
       width: p.resolution[0],
       height: p.resolution[1],
       lensId: p.lens,
@@ -351,7 +355,7 @@ const nf = (n, d = 1, group = false) => Number(n).toLocaleString(locale(), { min
 const QUAD_SHORT = ['oben links', 'oben rechts', 'unten links', 'unten rechts'];
 const indexOf = (p) => S.project.projectors.indexOf(p);
 const displayName = (p) => (/^P\d+$/.test(p.name) ? tr(`Projektor ${p.name.slice(1)}`) : p.name);
-const enabledPoints = (p) => p.points.filter((x) => x.enabled && x.world && x.image).length;
+const enabledPoints = (p) => p.points.filter((x) => x.enabled && x.world && x.image).length + (p.autoPoints?.length || 0);
 const QUALITY_TEXT = { 'sehr gut': 'Sitzt sehr gut', gut: 'Sitzt gut', 'vorläufig': 'Erste Lösung', unsicher: 'Noch unsicher' };
 const isGood = (q) => q === 'sehr gut' || q === 'gut';
 
@@ -771,8 +775,9 @@ function renderCalibrate() {
     gtitle('Punkte',
       iconBtn('target', 'Gewählten Punkt im Modell neu setzen', () => { S.pendingRepick = !S.pendingRepick; refresh(); }, { disabled: !activePoint(), on: S.pendingRepick, id: 'btnRepick' }),
       iconBtn('trash', 'Gewählten Punkt löschen (Entf)', deleteActivePoint, { disabled: !activePoint(), id: 'btnDeletePoint' })),
-    rows.length ? el('div', { class: 'group plist' }, ...rows) : group(el('div', { class: 'empty-note' }, 'Klicke im 3D-Modell auf eine Ecke, um den ersten Punkt zu setzen.')),
+    rows.length ? el('div', { class: 'group plist' }, ...rows) : group(el('div', { class: 'empty-note' }, p.autoPoints?.length ? 'Die Kamera-Punkte werden verwendet. Punkte von Hand sind optional.' : 'Klicke im 3D-Modell auf eine Ecke, um den ersten Punkt zu setzen.')),
     p.points.length ? el('div', { style: 'padding:6px 4px 0' }, el('button', { class: 'link danger', id: 'btnClearPoints', onclick: clearPoints }, 'Alle Punkte löschen')) : null,
+    ...cameraGroup(p),
     more('calDetails', 'Details und Hilfen',
       s ? group(
         r('Mittlerer Fehler', el('span', { class: 'muted' }, `${nf(s.rms, 2)} px`)),
@@ -1315,6 +1320,20 @@ function audioGroup() {
 
 // Raumeinmessung (Assistent in tuning.js)
 const tuning = createTuning({ el, ic, icon, tr, nf, api, audio, A, markDirty, refresh, toast, peakingResponse });
+const camcal = createCamcal({ el, ic, tr, nf, api, S, active, displayName, lensFor, markDirty, refresh, toast, scheduleSolve, toggleOutputs: (v) => toggleOutputs(v), setPlay: (v) => setPlay(v) });
+function cameraGroup(p) {
+  const n = p.autoPoints?.length || 0;
+  return [
+    gtitle('Kamera'),
+    group(
+      n ? r('Kamera-Punkte', el('div', { style: 'display:flex;gap:10px;align-items:center' },
+        el('span', { class: 'muted' }, String(n)),
+        el('button', { class: 'link quiet', id: 'btnCamClear', onclick: () => { p.autoPoints = []; p.autoCal = null; scheduleSolve(p); markDirty(); refresh(); } }, 'Entfernen')),
+      { sub: tr(`${p.autoCal?.positions || 1} Standort(e) · ${new Date(p.autoCal?.date || Date.now()).toLocaleDateString(locale())}`), tip: 'Punkte aus der Kamera-Kalibrierung. Sie werden zusammen mit den Punkten von Hand verwendet.' }) : null,
+      el('div', { class: 'r' }, el('div', { class: 'lbl' }, el('span', {}, n ? 'Neu messen' : 'Automatisch', el('span', { class: 'sub' }, 'mit Webcam und Testmustern'))),
+        el('div', { class: 'ctl' }, el('button', { class: 'btn', id: 'btnCamcal', disabled: !S.model, onclick: () => camcal.open(p.id) }, ic('camera', 14), 'Mit Kamera kalibrieren …')))),
+  ];
+}
 function tuningGroup() {
   const t = A().tuning;
   const when = t?.date ? new Date(t.date).toLocaleDateString(locale()) : '';
@@ -1366,7 +1385,8 @@ function broadcast() {
     bcQueued = false;
     api.broadcast({
       type: 'state',
-      project: S.project,
+      // Kamera-Punkte braucht die Ausgabe nicht (spart Kopieren bei jeder Änderung)
+      project: { ...S.project, projectors: S.project.projectors.map(({ autoPoints, ...rest }) => rest) },
       activeId: S.activeId,
       activePointId: S.activePointId,
       play: S.play,
@@ -1411,6 +1431,7 @@ async function toggleOutputs(force) {
 
 api.onOutputEvent((msg) => {
   if (msg.type === 'ready') { broadcast(); broadcastBlend(); return; }
+  if (msg.type === 'patternShown') return camcal.onShown(msg);
   if (msg.type === 'key') return handleKey(msg);
   if (msg.type === 'stats') { S.outStats[msg.outputId] = { ...msg, at: Date.now() }; return showOutStats(); }
   if (msg.type === 'pointer') {
@@ -1486,6 +1507,7 @@ function handleKey(e) {
 }
 window.addEventListener('keydown', (e) => {
   if (!$('#tuneSheet').classList.contains('hidden')) { if (e.key === 'Escape') tuning.close(); return; }
+  if (!$('#camSheet').classList.contains('hidden')) { if (e.key === 'Escape') camcal.close(); return; }
   if (!$('#onboarding').classList.contains('hidden')) {
     if (e.key === 'Escape') closeOnboarding(false);
     return;
@@ -1916,5 +1938,5 @@ api.onLangChanged((l) => applyLang(l));
   await syncOpenOutputs();
   refresh();
   if (!onboardingSeen()) showOnboarding(0);
-  window.__app = { S, tuning, view, refresh, assignDisplay, setVideo, addVideos, jumpTo, audio, setPlay, scheduleSolve, selectPoint, computeBlend, toggleOutputs, setMode, showOnboarding, closeOnboarding, ready: true };
+  window.__app = { S, tuning, camcal, view, refresh, assignDisplay, setVideo, addVideos, jumpTo, audio, setPlay, scheduleSolve, selectPoint, computeBlend, toggleOutputs, setMode, showOnboarding, closeOnboarding, ready: true };
 })();

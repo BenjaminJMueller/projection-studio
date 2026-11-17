@@ -8,6 +8,8 @@ Projection Studio is a tool for 3D projection mapping on macOS and Windows. It d
 
 > **Beta.** Projection Studio grew out of one specific installation and has been tried there, but hardly anywhere else. Bugs and gaps are likely, see [Features and limits](#features-and-limits). If it still helps someone with their own project, I'm glad.
 
+**Download:** [macOS (.dmg)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-mac.dmg) · [Windows, installer (.exe)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-Setup.exe) · [Windows, portable (.exe)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-Portable.exe) · [installation notes](#installation)
+
 The interface is in German by default. Switch to English under *View → Language* (Ansicht → Sprache) or in the help popover (?).
 
 ## Background
@@ -77,9 +79,9 @@ For calibration there is also a **test output**. A single projector can be conne
 ## Workflow
 
 1. **Set up.** Load the model, enable projectors, set lens, mirror, resolution, output and cell.
-2. **Calibrate.** Select a projector, click distinctive points in the model and hit them in the projected image, with the mouse on the projector, in the preview or with the arrow keys (1 px, with ⇧ 10 px). Compensate remaining errors in the *Fine correction* tab.
+2. **Calibrate.** Select a projector, click distinctive points in the model and hit them in the projected image, with the mouse on the projector, in the preview or with the arrow keys (1 px, with ⇧ 10 px). Or use a camera and test patterns (see below). Compensate remaining errors in the *Fine correction* tab.
 3. **Blend.** Compute masks, adjust the limit angle and transitions, draw custom masks.
-4. **Output.** Test patterns or video on the projectors, export or live link to TouchDesigner.
+4. **Output.** Test patterns or a video playlist on the projectors, audio to the speakers, room tuning, export or live link to TouchDesigner.
 
 <p>
   <img src="docs/screenshots/04-blending.png" width="49%" alt="Blend">
@@ -92,16 +94,18 @@ Projects are saved automatically, and every step can be undone. On first launch 
 
 | | |
 |---|---|
-| Projectors | up to 8 per project, each can be disabled. The number is fixed; more than 8 is currently not possible. |
-| Outputs | 2 outputs for video wall controllers (HDMI A, HDMI B) and 1 test output for a directly connected projector, all on the same computer |
-| Controller modes | *Full*, *2 × 2*, *2 side by side*, *2 stacked*, *3 side by side*, *4 side by side*, *4 stacked*. All cells of an output have the same size. |
-| Resolution per projector | 1920 × 1080, 1280 × 800, 1280 × 720 or 3840 × 2160 (resolution of the signal, not the panel) |
+| Projectors | up to 16 per project, each can be disabled, freely named groups (e.g. inner ring, outer ring) |
+| Outputs | up to 4 outputs for video wall controllers (HDMI A to D) and 1 test output for a directly connected projector, all on the same computer |
+| Controller modes | *Full*, *2 × 2*, *2 side by side*, *2 stacked*, *3 side by side*, *4 side by side*, *4 stacked*, *3 × 2*, *3 × 3*. All cells of an output have the same size. |
+| Resolution per projector | 1920 × 1080, 1920 × 1200, 1280 × 800, 1280 × 720, 1024 × 768, 3840 × 2160 or the native resolution of the projector type (resolution of the signal) |
 | 3D model | OBJ only; materials and textures are ignored. The demo has about 16,000 triangles; much larger models are untested. |
-| Lenses | presets for Epson EB-535W, standard projectors with fixed offset, centred lens shift, and *Unknown*. Lens distortion is not modelled; fine correction compensates the rest. |
-| Calibration | from 4 point pairs, 6 well-spread points are ideal |
+| Projector types | database of verified datasheet values (Epson EB-535W, BenQ MW632ST, Optoma GT1080HDR, Epson EB-L1050U, Panasonic PT-VMZ60), custom types from a datasheet (native resolution, throw ratio, zoom, fixed offset or lens shift), plus generic presets. Lens distortion is not modelled; fine correction compensates the rest. |
+| Calibration | by hand from 4 point pairs (6 well-spread points are ideal) or with a camera and test patterns, see below |
 | Fine correction | grid of 2 to 33 control points per direction, optional Bézier handles, up to 200 free points per projector |
 | Masks | automatic blending, custom polygon masks with soft edges |
-| Video | formats Chromium can play: H.264 and AAC in MP4/MOV, VP8, VP9 and AV1 in WebM/MKV. H.265/HEVC only where the system decodes it in hardware. ProRes, HAP, DXV and image sequences are not supported. No audio output. The achievable resolution depends on decoder and graphics card. |
+| Video | playlist, play/pause with the space bar, adjustable frame rate (free, 24, 25, 30, 50, 60), display of the current frame rate. Formats Chromium can play: H.264 and AAC in MP4/MOV, VP8, VP9 and AV1 in WebM/MKV. H.265/HEVC only where the system decodes it in hardware. ProRes, HAP, DXV and image sequences are not supported. A frame may hold briefly between two playlist videos. The achievable resolution depends on decoder and graphics card. |
+| Audio | the video's soundtrack on up to 32 speakers, channel routing, master and per-channel levels with meters, selectable audio device, sample rate and buffer size. No ASIO: WASAPI on Windows, Core Audio on macOS. |
+| Room tuning | sweep over all speakers at several measuring spots, aligns delay, level and tone (up to 8 filters per speaker) for the whole lying area, can be switched on and off. Microphone: smartphone via QR code on the same Wi-Fi, or a measurement microphone on an audio interface. |
 | TouchDesigner | export (JSON, masks as PNG, GLSL shader, Python script) and live link via OSC |
 | Languages | German (default), English |
 | Systems | macOS 11 or later (Apple Silicon and Intel), Windows 10/11 64-bit; graphics card with WebGL 2 |
@@ -110,19 +114,27 @@ Known limitations:
 
 - The Mac app is not signed or notarised by Apple, so the first launch needs a workaround (see below).
 - No automatic updates while the repository is private.
-- Performance with 8 projectors on 2 × 4K has not yet been measured on the target machine. The app shows the frame rate per output.
+- Performance with 8 projectors on 2 × 4K (let alone 16) has not yet been measured on the target machine. The app shows the frame rate per output.
 - *Mouse follows* and switching between displays have not yet been tried on real hardware under macOS and Windows.
 - The TouchDesigner integration is tested against a mock of the TD API, and only partly on a real installation.
-- No camera-based auto-calibration. Flat screens also need a (simple) OBJ model.
+- Camera calibration and room tuning are tested with simulated camera images and recordings, not yet on the real installation.
+- Room tuning with a smartphone: phone microphones are inaccurate below about 100 Hz and above 10 kHz, so only the range in between is corrected. The phone asks once about the self-signed certificate when the page is first opened.
+- Flat screens also need a (simple) OBJ model.
 - Multiple computers working together are not supported.
 
-## Download
+## Calibration with a camera
 
-The current version is built automatically on every change:
+Instead of setting points by hand, a webcam (e.g. Logitech StreamCam) can measure a projector. For each projector, the *Calibrate with camera …* assistant (in *Calibrate*) does this:
 
-- [macOS (.dmg)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-mac.dmg)
-- [Windows, installer (.exe)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-Setup.exe)
-- [Windows, portable (.exe)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-Portable.exe)
+1. **Aim.** The projector and an already calibrated neighbour show a checkerboard. The camera is set up firmly so that it sees as much of the projector as possible and part of the neighbour. A sharpness meter with a best-value marker helps with focusing.
+2. **Measure.** Exposure, focus and white balance are locked as far as the camera allows. Then both projectors show stripe patterns one after another (Gray code with inverses, about 15 seconds per projector). The neighbour gives the camera position; the projector gives the point pairs for the solver.
+3. **Result.** Error, coverage of the projector image and a sharpness map. If the camera does not see everything, add another position; the points of all positions are used together. Camera points can be combined with points set by hand.
+
+Blur is detected from the patterns themselves: fine stripes only have full contrast when camera and projector are in focus, measured at a stripe width that matches the camera distance. If the image is blurry, the camera refocuses briefly and measures again. If that does not help, the assistant pauses, shows the checkerboard and guides you to the focus ring of the projector, with a live meter. Camera movement or lighting changes during the measurement are detected and the measurement is repeated.
+
+Limits: the first projector is calibrated by hand, because the camera needs a calibrated projector as a reference. Errors of the reference carry over to the following projectors. Camera lens distortion is not modelled. How far exposure and focus can be locked depends on camera and system (often limited on macOS); then darken the room. In the simulation on the vaulted ceiling the error was about 0.5 px with two camera positions.
+
+## Installation
 
 Older builds are under [Releases](https://github.com/BenjaminJMueller/projection-studio/releases). The version number is shown in the *Help* menu.
 

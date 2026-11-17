@@ -517,3 +517,23 @@ details.more > summary:hover { color: var(--text); }
 .tune-legend .k.a::before { background: #e3a33f; }
 .tune-legend .k.b::before { background: var(--accent); }
 .tune-legend .k.c::before { border-top: 2px dashed var(--text-3); height: 0; }
+
+/* Kamera-Kalibrierung */
+.sheet.cam { width: 680px; }
+.cam-view { max-width: 460px; width: 100%; margin: 0 auto 12px; border-radius: 10px; overflow: hidden; background: #000; aspect-ratio: 16 / 9; box-shadow: inset 0 0 0 0.5px var(--line-strong); }
+.cam-video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.cam-focus i { background: var(--text-3); transition: background-color 200ms var(--ease); }
+.cam-focus[data-state="ok"] i { background: var(--ok); }
+.cam-focus[data-state="mid"] i { background: #e3b341; }
+.cam-focus[data-state="low"] i { background: #e5645c; }
+.cam-prog { max-width: 460px; width: 100%; margin: 18px auto 0; }
+.cam-prog i { background: var(--accent); }
+.cam-notes { max-width: 460px; width: 100%; margin: 8px auto 0; display: grid; gap: 6px; font-size: 12px; line-height: 17px; color: var(--text-2); }
+.cam-notes > div { display: grid; grid-template-columns: 16px 1fr; gap: 8px; align-items: start; }
+.sheet.cam .body > .btn { margin: 10px auto 0; }
+.cam-maps { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 460px; width: 100%; margin: 14px auto 4px; }
+.cam-maps b { display: block; font-size: 11px; font-weight: 600; color: var(--text-3); margin-bottom: 6px; }
+.cam-cov { display: grid; gap: 2px; width: 100%; border-radius: 6px; overflow: hidden; background: var(--bg-stage); padding: 2px; }
+.cam-cov i { background: var(--bg-field); border-radius: 2px; }
+.cam-cov i.on { background: var(--ok); }
+.cam-sharp { width: 100%; height: auto; display: block; border-radius: 6px; background: #000; }
