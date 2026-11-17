@@ -46,6 +46,7 @@ const S = {
   play: { playing: false, startedAt: 0, pausedAt: 0, loop: true },
   videoInfo: null,
   calTab: 'points', // 'points' | 'warp'
+  outStats: {},
   activeHandle: null,
 };
 const undoStack = [], redoStack = [];
@@ -818,7 +819,20 @@ function playbackGroup() {
     r('Abbildung', select([['top', 'Draufsicht'], ['uv', 'Modell-UV']], pb.mapping, (v) => { pb.mapping = v; markDirty(); refresh(); }),
       { tip: 'Draufsicht legt das Video wie von oben gesehen über den Grundriss, Norden oben. Modell-UV nutzt die Texturkoordinaten aus dem 3D-Modell.' }),
     r('Schleife', switchCtl(pb.loop, (v) => { pb.loop = v; S.play = { ...S.play, loop: v }; markDirty(); refresh(); })),
+    pb.src && S.play.playing && S.openOutputs.size ? r('Leistung', el('span', { class: 'muted', id: 'outStats' }, outStatsText()),
+      { tip: 'Bilder pro Sekunde je HDMI-Ausgang und verworfene Videobilder. Liegt die Bildrate deutlich unter der des Videos, ist die Grafikkarte oder die Videodatei zu schwer.' }) : null,
   );
+}
+
+function outStatsText() {
+  const now = Date.now();
+  const list = Object.values(S.outStats).filter((x) => now - x.at < 5000).sort((a, b) => String(a.outputId).localeCompare(String(b.outputId)));
+  if (!list.length) return 'Wird gemessen …';
+  return list.map((x) => `${x.outputId}: ${Math.round(x.fps)} fps${x.dropped ? ` · ${x.dropped} verworfen` : ''}`).join('   ');
+}
+function showOutStats() {
+  const o = document.getElementById('outStats');
+  if (o) o.textContent = outStatsText();
 }
 
 // ------------------------------------------------------------------ TouchDesigner live (OSC)
@@ -890,6 +904,7 @@ async function toggleOutputs(force) {
 api.onOutputEvent((msg) => {
   if (msg.type === 'ready') { broadcast(); broadcastBlend(); return; }
   if (msg.type === 'key') return handleKey(msg);
+  if (msg.type === 'stats') { S.outStats[msg.outputId] = { ...msg, at: Date.now() }; return showOutStats(); }
   if (msg.type === 'pointer') {
     // Klick/Ziehen auf einem Projektor-Ausgang
     if (msg.projectorId !== S.activeId) {

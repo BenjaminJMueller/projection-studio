@@ -202,7 +202,33 @@ function draw(full = true) {
   requestAnimationFrame(() => { queued = false; const f = needFull; needFull = false; drawNow(f); });
 }
 
+// Leistung: Bilder pro Sekunde und Zeichenzeit, alle 2 s an das Hauptfenster
+const perf = { frames: 0, ms: 0, since: performance.now(), dropped0: 0 };
+const warpCache = new WeakMap();
+function warpUniforms(wp) {
+  let c = warpCache.get(wp);
+  if (!c) { c = { arr: warpUniformArray(wp), on: isIdentity(wp) ? 0 : 1 }; warpCache.set(wp, c); }
+  return c;
+}
+function reportPerf() {
+  const now = performance.now(), dt = (now - perf.since) / 1000;
+  if (dt < 2) return;
+  const q = video?.getVideoPlaybackQuality?.();
+  const dropped = q ? q.droppedVideoFrames - perf.dropped0 : 0;
+  if (st.project?.view.outputMode === 'video' && st.play?.playing) {
+    api.sendOutputEvent({ type: 'stats', outputId, fps: perf.frames / dt, ms: perf.frames ? perf.ms / perf.frames : 0, dropped: Math.max(0, dropped) });
+  }
+  perf.frames = 0; perf.ms = 0; perf.since = now; perf.dropped0 = q ? q.droppedVideoFrames : 0;
+}
+
 function drawNow(full = true) {
+  const t0 = performance.now();
+  drawFrame(full);
+  perf.frames++; perf.ms += performance.now() - t0;
+  reportPerf();
+}
+
+function drawFrame(full = true) {
   const Wc = glCanvas.width, Hc = glCanvas.height;
   renderer.setScissorTest(false);
   renderer.setClearColor(0x000000, 1);
@@ -238,8 +264,9 @@ function drawNow(full = true) {
       u.uMaskOn.value = showMask ? 1 : 0;
       if (showMask) u.tMask.value = maskFor(p);
       const wp = p.warp;
-      u.uWarpOn.value = isIdentity(wp) ? 0 : 1;
-      if (wp) { u.uWarp.value = warpUniformArray(wp); u.uWarpCols.value = wp.cols; u.uWarpRows.value = wp.rows; }
+      const wu = wp ? warpUniforms(wp) : null;
+      u.uWarpOn.value = wu ? wu.on : 0;
+      if (wu) { u.uWarp.value = wu.arr; u.uWarpCols.value = wp.cols; u.uWarpRows.value = wp.rows; }
       renderer.setViewport(x / dpr, (Hc - y - h) / dpr, w / dpr, h / dpr);
       renderer.setScissor(x / dpr, (Hc - y - h) / dpr, w / dpr, h / dpr);
       renderer.setScissorTest(true);
