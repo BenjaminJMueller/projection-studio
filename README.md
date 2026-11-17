@@ -1,8 +1,12 @@
 # Projection Studio
 
+Deutsch · [English](README.en.md)
+
 Projection Studio ist ein Werkzeug für 3D-Projection-Mapping auf macOS und Windows. Es bestimmt die Lage und die Optik jedes Projektors anhand weniger Punktkorrespondenzen zwischen einem 3D-Modell (OBJ) und dem realen Projektionsbild. Darauf aufbauend berechnet es Überblendmasken mit Helligkeitsausgleich, erlaubt eine Feinkorrektur über Gitter und frei gesetzte Punkte und gibt das Ergebnis entweder direkt aus oder übergibt es an TouchDesigner.
 
 ![Kalibrieren](docs/screenshots/02-kalibriert.png)
+
+> **Beta.** Projection Studio ist an einem konkreten Aufbau entstanden und dort erprobt, auf anderen Systemen aber noch wenig. Fehler und Lücken sind wahrscheinlich, siehe [Funktionsumfang und Grenzen](#funktionsumfang-und-grenzen). Wenn es trotzdem jemandem bei einem eigenen Projekt weiterhilft, freue ich mich.
 
 ## Hintergrund
 
@@ -12,6 +16,8 @@ Projection Studio ist im Rahmen der Lehre entstanden. Anlass war eine Installati
 - großer vertikaler Lens Offset, 4 Projektoren im Innenring um eine Mittelsäule, 4 im Außenring
 - Zuspielung von einem Rechner über 2 × 4K, jeder Ausgang über einen Video-Wall-Controller (LogiLink HD0054) auf 4 Projektoren verteilt
 - Wiedergabe von Videos ab 2K über alle Projektoren
+
+Für die Lehre standen nur diese Projektoren zur Verfügung. Für eine Gewölbedecke sind sie eher ungünstig: Kurzdistanzobjektive mit starker Verzeichnung an den Rändern, ein Lens Offset, durch den das Bild vollständig auf einer Seite der Objektivachse liegt, und der Umweg über Spiegel am Boden, damit die Geräte nicht an der Decke hängen müssen. Mit Projektoren mit Lens Shift und passender Brennweite wäre vieles einfacher gewesen. Es musste also eine Lösung gefunden werden, die mit dem vorhandenen Material zurechtkommt.
 
 Die Software ist nicht auf diesen Aufbau beschränkt. Jede Geometrie, die als OBJ vorliegt, lässt sich verwenden. Das Gewölbe liegt als Demo bei.
 
@@ -52,7 +58,7 @@ Für die Ausgabe wird die Abbildung umgekehrt: zu jedem Ausgabepixel die Quellpo
 
 ## Ausgänge und Video-Wall-Controller
 
-Die App unterstützt Video-Wall-Controller (auch Video-Wall-Prozessor genannt), die ein 4K-Signal in 2 × 2 Full-HD-Signale aufteilen. Im Gewölbe ist das ein LogiLink HD0054 je Ausgang. Vergleichbare Geräte gibt es unter anderem von StarTech, Lindy oder Datapath.
+Die App unterstützt Video-Wall-Controller (auch Video-Wall-Prozessor genannt), die ein 4K-Signal in 2 × 2 Full-HD-Signale aufteilen. Im Gewölbe ist das ein LogiLink HD0054 je Ausgang. Vergleichbare Geräte gibt es unter anderem von Matrox (QuadHead2Go für 2 × 2 oder 4 nebeneinander, TripleHead2Go für 3 nebeneinander), Datapath, StarTech und Lindy.
 
 Gründe für diesen Weg:
 
@@ -78,7 +84,35 @@ Zum Kalibrieren gibt es zusätzlich einen **Testausgang**. Dort lässt sich ein 
   <img src="docs/screenshots/09-feinkorrektur.png" width="49%" alt="Feinkorrektur">
 </p>
 
-Projekte werden automatisch gesichert, alle Schritte lassen sich rückgängig machen. Eine Einführung führt beim ersten Start durch die Einrichtung und bietet an, mit der Demo zu beginnen.
+Projekte werden automatisch gesichert, alle Schritte lassen sich rückgängig machen. Eine Einführung führt beim ersten Start durch die Einrichtung und bietet an, mit der Demo zu beginnen. Die Oberfläche ist auf Deutsch, Englisch lässt sich im Menü *Ansicht → Sprache* oder unter *Hilfe* (?) umstellen.
+
+## Funktionsumfang und Grenzen
+
+| | |
+|---|---|
+| Projektoren | bis zu 8 pro Projekt, einzeln abschaltbar. Die Zahl ist fest, mehr als 8 sind derzeit nicht möglich. |
+| Ausgänge | 2 Ausgänge für Video-Wall-Controller (HDMI A, HDMI B) und 1 Testausgang für einen direkt angeschlossenen Projektor, alle auf demselben Rechner |
+| Controller-Modi | *Ganz*, *2 × 2*, *2 nebeneinander*, *2 übereinander*, *3 nebeneinander*, *4 nebeneinander*, *4 übereinander*. Alle Felder eines Ausgangs sind gleich groß. |
+| Auflösung je Projektor | 1920 × 1080, 1280 × 800, 1280 × 720 oder 3840 × 2160 (Auflösung des Signals, nicht des Panels) |
+| 3D-Modell | nur OBJ, Materialien und Texturen werden ignoriert. Die Demo hat rund 16 000 Dreiecke, deutlich größere Modelle sind nicht erprobt. |
+| Objektive | Voreinstellungen für Epson EB-535W, Standardbeamer mit festem Offset, Lens Shift zentriert, sowie *Unbekannt*. Keine Modellierung von Objektivverzeichnung, Reste gleicht die Feinkorrektur aus. |
+| Kalibrierung | ab 4 Punktpaaren, 6 gut verteilte sind ideal |
+| Feinkorrektur | Gitter 2 bis 33 Stützpunkte je Richtung, optional Bézier-Anfasser, bis zu 200 freie Punkte je Projektor |
+| Masken | automatische Überblendung, eigene Masken als Vielecke mit weicher Kante |
+| Video | Formate, die Chromium abspielt: H.264 und AAC in MP4/MOV, VP8, VP9 und AV1 in WebM/MKV. H.265/HEVC nur, wenn das System es in Hardware dekodiert. ProRes, HAP, DXV und Bildsequenzen werden nicht unterstützt. Ton wird nicht ausgegeben. Die mögliche Auflösung hängt von Decoder und Grafikkarte ab. |
+| TouchDesigner | Export (JSON, Masken als PNG, GLSL-Shader, Python-Skript) und Live-Verbindung per OSC |
+| Sprachen | Deutsch (Standard), Englisch |
+| Systeme | macOS 11 oder neuer (Apple Silicon und Intel), Windows 10/11 64 Bit; Grafikkarte mit WebGL 2 |
+
+Bekannte Grenzen:
+
+- Die Mac-App ist nicht von Apple signiert und beglaubigt, beim ersten Start ist ein Umweg nötig (siehe unten).
+- Kein automatisches Update, solange das Repository privat ist.
+- Die Leistung mit 8 Projektoren an 2 × 4K ist auf dem Zielrechner noch nicht gemessen. Die App zeigt die Bildrate je Ausgang an.
+- *Maus springt mit* und der Wechsel zwischen Bildschirmen sind auf echter Hardware unter macOS und Windows noch nicht erprobt.
+- Das Zusammenspiel mit TouchDesigner ist mit einem Nachbau der TD-Schnittstelle getestet, an einer echten Installation nur teilweise.
+- Keine kamerabasierte Autokalibrierung. Auch für flache Leinwände braucht es ein (einfaches) OBJ-Modell.
+- Mehrere Rechner im Verbund werden nicht unterstützt.
 
 ## Herunterladen
 
@@ -144,7 +178,7 @@ src/main/       Hauptprozess: Fenster, Bildschirme, Dateien, OSC, Updates
 src/renderer/   Oberfläche, 3D-Ansicht, Vorschau, Überblendung, Solver im Worker
 src/output/     Vollbildfenster je Ausgang (Szene, Feinkorrektur und Maske auf der GPU)
 src/core/       Solver, Export, OSC
-src/shared/     Projektformat, Masken, Wiedergabe, Verzerrungsgitter
+src/shared/     Projektformat, Masken, Wiedergabe, Verzerrungsgitter, Übersetzung
 examples/       Demo-Gewölbe
 td/             Skripte für TouchDesigner
 test/           Tests und Testvideo

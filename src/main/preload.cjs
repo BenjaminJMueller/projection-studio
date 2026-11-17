@@ -9,6 +9,9 @@ const on = (channel) => (cb) => {
 
 contextBridge.exposeInMainWorld('api', {
   platform: process.platform,
+  getLang: () => ipcRenderer.invoke('lang:get'),
+  setLang: (l) => ipcRenderer.invoke('lang:set', l),
+  onLangChanged: on('lang:changed'),
   listDisplays: () => ipcRenderer.invoke('displays:list'),
   moveCursor: (x, y) => ipcRenderer.invoke('cursor:move', { x, y }),
   openOutput: (displayId, outputName) => ipcRenderer.invoke('output:open', { displayId, outputName }),

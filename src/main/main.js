@@ -7,12 +7,27 @@ import dgram from 'node:dgram';
 import { oscMessage } from '../core/osc.js';
 import { checkForUpdates, updatesEnabled } from './updater.js';
 import { execFile } from 'node:child_process';
+import { tr, setLang, getLang, LANGS } from '../shared/i18n.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..', '..');
 const isMac = process.platform === 'darwin';
 
 let mainWin = null;
+
+// Sprache: Deutsch ist Standard, die Wahl liegt in userData/settings.json
+const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
+async function loadSettings() {
+  try { return JSON.parse(await fs.readFile(settingsFile(), 'utf8')); } catch { return {}; }
+}
+async function changeLang(l) {
+  setLang(l);
+  const s = await loadSettings();
+  s.lang = getLang();
+  await fs.writeFile(settingsFile(), JSON.stringify(s)).catch(() => {});
+  buildMenu();
+  mainWin?.webContents.send('lang:changed', getLang());
+}
 /** displayId -> BrowserWindow */
 const outputWins = new Map();
 
@@ -49,7 +64,7 @@ function listDisplays() {
   return screen.getAllDisplays().map((d, i) => ({
     id: d.id,
     index: i + 1,
-    label: d.label || `Bildschirm ${i + 1}`,
+    label: d.label || tr(`Bildschirm ${i + 1}`),
     bounds: d.bounds,
     scaleFactor: d.scaleFactor,
     pixelSize: { width: Math.round(d.bounds.width * d.scaleFactor), height: Math.round(d.bounds.height * d.scaleFactor) },
@@ -106,6 +121,8 @@ function closeOutput(displayId) {
 }
 
 ipcMain.handle('displays:list', () => listDisplays());
+ipcMain.handle('lang:get', () => getLang());
+ipcMain.handle('lang:set', (_e, l) => changeLang(l));
 
 /** Mauszeiger setzen (x, y in Bildschirmpunkten wie screen.getAllDisplays). Ohne native Erweiterung. */
 ipcMain.handle('cursor:move', (_e, { x, y }) => new Promise((resolve) => {
@@ -185,48 +202,51 @@ function buildMenu() {
   const template = [
     ...(isMac ? [{ role: 'appMenu' }] : []),
     {
-      label: 'Datei',
+      label: tr('Datei'),
       submenu: [
-        { label: 'Neues Projekt', accelerator: 'CmdOrCtrl+N', click: send('new') },
-        { label: 'Projekt öffnen …', accelerator: 'CmdOrCtrl+O', click: send('open') },
-        { label: 'Speichern', accelerator: 'CmdOrCtrl+S', click: send('save') },
-        { label: 'Speichern unter …', accelerator: 'CmdOrCtrl+Shift+S', click: send('saveAs') },
+        { label: tr('Neues Projekt'), accelerator: 'CmdOrCtrl+N', click: send('new') },
+        { label: tr('Projekt öffnen …'), accelerator: 'CmdOrCtrl+O', click: send('open') },
+        { label: tr('Speichern'), accelerator: 'CmdOrCtrl+S', click: send('save') },
+        { label: tr('Speichern unter …'), accelerator: 'CmdOrCtrl+Shift+S', click: send('saveAs') },
         { type: 'separator' },
-        { label: '3D-Modell laden …', click: send('loadModel') },
-        { label: 'Für TouchDesigner exportieren …', accelerator: 'CmdOrCtrl+E', click: send('export') },
+        { label: tr('3D-Modell laden …'), click: send('loadModel') },
+        { label: tr('Für TouchDesigner exportieren …'), accelerator: 'CmdOrCtrl+E', click: send('export') },
         { type: 'separator' },
-        isMac ? { role: 'close' } : { role: 'quit', label: 'Beenden' },
+        isMac ? { role: 'close' } : { role: 'quit', label: tr('Beenden') },
       ],
     },
     {
-      label: 'Bearbeiten',
+      label: tr('Bearbeiten'),
       submenu: [
-        { label: 'Rückgängig', accelerator: 'CmdOrCtrl+Z', click: send('undo') },
-        { label: 'Wiederholen', accelerator: isMac ? 'Cmd+Shift+Z' : 'Ctrl+Y', click: send('redo') },
+        { label: tr('Rückgängig'), accelerator: 'CmdOrCtrl+Z', click: send('undo') },
+        { label: tr('Wiederholen'), accelerator: isMac ? 'Cmd+Shift+Z' : 'Ctrl+Y', click: send('redo') },
         { type: 'separator' },
-        { role: 'cut', label: 'Ausschneiden' },
-        { role: 'copy', label: 'Kopieren' },
-        { role: 'paste', label: 'Einfügen' },
+        { role: 'cut', label: tr('Ausschneiden') },
+        { role: 'copy', label: tr('Kopieren') },
+        { role: 'paste', label: tr('Einfügen') },
       ],
     },
     {
-      label: 'Ausgabe',
+      label: tr('Ausgabe'),
       submenu: [
-        { label: 'Ausgänge öffnen', accelerator: 'CmdOrCtrl+Shift+O', click: send('openOutputs') },
-        { label: 'Ausgänge schließen', accelerator: 'Escape', click: send('closeOutputs') },
+        { label: tr('Ausgänge öffnen'), accelerator: 'CmdOrCtrl+Shift+O', click: send('openOutputs') },
+        { label: tr('Ausgänge schließen'), accelerator: 'Escape', click: send('closeOutputs') },
       ],
     },
     {
-      label: 'Ansicht',
-      submenu: [{ role: 'reload' }, { role: 'toggleDevTools' }, { type: 'separator' }, { role: 'togglefullscreen' }],
+      label: tr('Ansicht'),
+      submenu: [
+        { label: tr('Sprache'), submenu: LANGS.map(([id, name]) => ({ label: name, type: 'radio', checked: getLang() === id, click: () => changeLang(id) })) },
+        { type: 'separator' },
+        { role: 'reload' }, { role: 'toggleDevTools' }, { type: 'separator' }, { role: 'togglefullscreen' }],
     },
     {
-      label: 'Hilfe',
+      label: tr('Hilfe'),
       role: 'help',
       submenu: [
-        { label: 'Einführung anzeigen', click: send('onboarding') },
+        { label: tr('Einführung anzeigen'), click: send('onboarding') },
         { type: 'separator' },
-        ...(updatesEnabled() ? [{ label: 'Nach Updates suchen …', click: () => checkForUpdates(mainWin, true) }] : []),
+        ...(updatesEnabled() ? [{ label: tr('Nach Updates suchen …'), click: () => checkForUpdates(mainWin, true) }] : []),
         { label: `Version ${app.getVersion()}`, enabled: false },
       ],
     },
@@ -234,7 +254,8 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  setLang((await loadSettings()).lang || 'de');
   buildMenu();
   createMainWindow();
   setTimeout(() => checkForUpdates(mainWin, false), 5000);

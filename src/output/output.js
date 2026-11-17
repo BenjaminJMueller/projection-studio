@@ -7,6 +7,7 @@ import { renderMaskCanvas } from '../shared/masks.js';
 import { fileUrl, targetTime, syncCorrection } from '../shared/playback.js';
 import { isIdentity, makeWarp } from '../shared/warp.js';
 import { drawWarpOverlay } from '../shared/warpdraw.js';
+import { tr, setLang } from '../shared/i18n.js';
 
 // Rohe Farbwerte durchreichen: Video, Masken und Testbilder werden 1:1 ausgegeben.
 THREE.ColorManagement.enabled = false;
@@ -352,7 +353,7 @@ function drawFrame(full = true) {
       ov.textAlign = 'center'; ov.textBaseline = 'middle';
       ov.fillText(p.name, w / 2, h / 2);
       ov.font = `${h * 0.04}px -apple-system, Segoe UI, sans-serif`;
-      ov.fillText(`${outputId} · ${p.ring}`, w / 2, h * 0.7);
+      ov.fillText(`${outputId} · ${tr(p.ring)}`, w / 2, h * 0.7);
       ov.textAlign = 'left'; ov.textBaseline = 'alphabetic';
     }
     if (active && st.warpEdit && p.warp) {
@@ -441,6 +442,7 @@ window.addEventListener('keydown', (e) => {
 api.onOutputConfig((cfg) => { if (cfg.outputName) outputId = cfg.outputName; draw(); });
 api.onStateUpdate(async (msg) => {
   if (msg.type === 'state') {
+    if (msg.lang) setLang(msg.lang);
     st.project = msg.project;
     st.activeId = msg.activeId;
     st.activePointId = msg.activePointId;

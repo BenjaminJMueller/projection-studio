@@ -3,8 +3,14 @@
 export function makeBrowserStub() {
   const mem = new Map();
   const noop = () => () => {};
+  const langCbs = new Set();
+  let lang = new URLSearchParams(location.search).get('lang');
+  try { lang ||= localStorage.getItem('kalib.lang'); } catch { /* egal */ }
   return {
     platform: 'browser',
+    getLang: async () => lang || 'de',
+    setLang: async (l) => { lang = l; try { localStorage.setItem('kalib.lang', l); } catch { /* egal */ } langCbs.forEach((cb) => cb(l)); },
+    onLangChanged: (cb) => { langCbs.add(cb); return () => langCbs.delete(cb); },
     listDisplays: async () => [
       { id: 1, index: 1, label: 'Eingebaut', bounds: { x: 0, y: 0, width: 1512, height: 982 }, scaleFactor: 2, pixelSize: { width: 3024, height: 1964 }, primary: true },
       { id: 2, index: 2, label: 'HDMI A (4K)', bounds: { x: 1512, y: 0, width: 3840, height: 2160 }, scaleFactor: 1, pixelSize: { width: 3840, height: 2160 }, primary: false },

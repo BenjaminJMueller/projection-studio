@@ -12,18 +12,21 @@ import { icon, hydrateIcons } from './icons.js';
 import { fileUrl, targetTime, playState } from '../shared/playback.js';
 import { defaultWarp, resizeWarp, isIdentity, inverse, gridBase, touchDesignerShader, makeWarp, GRID_SIZES, minJacobian, setBezierHandle } from '../shared/warp.js';
 import { visibleBezierHandles } from '../shared/warpdraw.js';
+import { tr, setLang, getLang, locale, LANGS, translateDom } from '../shared/i18n.js';
 
 const api = window.api || makeBrowserStub();
 const $ = (s) => document.querySelector(s);
+// Texte und diese Attribute laufen durch tr(): Deutsch bleibt unverändert, Englisch wird nachgeschlagen.
+const TR_ATTRS = new Set(['data-tip', 'aria-label', 'title', 'placeholder']);
 const el = (tag, attrs = {}, ...kids) => {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
     if (k === 'class') e.className = v;
     else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
     else if (k === 'html') e.innerHTML = v;
-    else if (v !== undefined && v !== null && v !== false) e.setAttribute(k, v === true ? '' : v);
+    else if (v !== undefined && v !== null && v !== false) e.setAttribute(k, v === true ? '' : TR_ATTRS.has(k) ? tr(v) : v);
   }
-  for (const k of kids.flat()) if (k != null) e.append(k.nodeType ? k : document.createTextNode(String(k)));
+  for (const k of kids.flat()) if (k != null) e.append(k.nodeType ? k : document.createTextNode(typeof k === 'string' ? tr(k) : String(k)));
   return e;
 };
 
@@ -338,10 +341,10 @@ function blendImgFor(id) {
   return img;
 }
 
-const nf = (n, d = 1, group = false) => Number(n).toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: d, useGrouping: group });
+const nf = (n, d = 1, group = false) => Number(n).toLocaleString(locale(), { minimumFractionDigits: d, maximumFractionDigits: d, useGrouping: group });
 const QUAD_SHORT = ['oben links', 'oben rechts', 'unten links', 'unten rechts'];
 const indexOf = (p) => S.project.projectors.indexOf(p);
-const displayName = (p) => (/^P\d+$/.test(p.name) ? `Projektor ${p.name.slice(1)}` : p.name);
+const displayName = (p) => (/^P\d+$/.test(p.name) ? tr(`Projektor ${p.name.slice(1)}`) : p.name);
 const enabledPoints = (p) => p.points.filter((x) => x.enabled && x.world && x.image).length;
 const QUALITY_TEXT = { 'sehr gut': 'Sitzt sehr gut', gut: 'Sitzt gut', 'vorläufig': 'Erste Lösung', unsicher: 'Noch unsicher' };
 const isGood = (q) => q === 'sehr gut' || q === 'gut';
@@ -440,8 +443,8 @@ function renderModes() {
 }
 
 function renderDocState() {
-  $('#projectName').textContent = S.project.name;
-  $('#docState').textContent = S.dirty ? (S.projectPath ? 'Bearbeitet' : 'Automatisch gesichert') : S.projectPath ? 'Gespeichert' : '';
+  $('#projectName').textContent = tr(S.project.name);
+  $('#docState').textContent = tr(S.dirty ? (S.projectPath ? 'Bearbeitet' : 'Automatisch gesichert') : S.projectPath ? 'Gespeichert' : '');
 }
 
 // ---------- 1 Einrichten
@@ -990,7 +993,7 @@ function outStatsText() {
 }
 function showOutStats() {
   const o = document.getElementById('outStats');
-  if (o) o.textContent = outStatsText();
+  if (o) o.textContent = tr(outStatsText());
 }
 
 // ------------------------------------------------------------------ TouchDesigner live (OSC)
@@ -1002,7 +1005,7 @@ function sendLive(p, immediate = false) {
   liveTimers[p.id] = setTimeout(async () => {
     const ex = exportProjector(p, { modelRadius: S.model?.radius });
     const res = await api.oscSend(td.host, Number(td.port), '/kalibrator/projector', [JSON.stringify(ex)]);
-    S.liveStatus = res.ok ? `Zuletzt ${displayName(p)} um ${new Date().toLocaleTimeString('de-DE')}` : `Fehler: ${res.error}`;
+    S.liveStatus = res.ok ? `Zuletzt ${displayName(p)} um ${new Date().toLocaleTimeString(locale())}` : `Fehler: ${res.error}`;
     if (S.mode === 'output') refresh();
   }, immediate ? 0 : 80);
 }
@@ -1027,6 +1030,7 @@ function broadcast() {
       markers: S.mode === 'calibrate',
       activeHandle: S.activeHandle,
       activePin: S.activePin,
+      lang: getLang(),
       modelPath: S.project.model.path,
     });
   });
@@ -1312,7 +1316,7 @@ async function exportTD() {
 let toastTimer;
 function toast(text) {
   const t = $('#toast');
-  t.textContent = text;
+  t.textContent = tr(text);
   t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), 3200);
@@ -1433,6 +1437,9 @@ function toggleHelp() {
     el('button', { role: 'menuitem', onclick: () => { m.classList.add('hidden'); showOnboarding(0); } }, ic('book'), 'Einführung anzeigen'),
     el('button', { role: 'menuitem', onclick: () => { m.classList.add('hidden'); chooseModel(); } }, ic('model'), '3D-Modell laden …'),
     el('hr'),
+    el('div', { class: 'ttl' }, 'Sprache'),
+    el('div', { class: 'seg lang' }, ...LANGS.map(([id, name]) => el('button', { class: getLang() === id ? 'on' : '', onclick: () => api.setLang(id) }, name))),
+    el('hr'),
     el('div', { class: 'ttl' }, 'Tastenkürzel'),
     el('div', { class: 'keys' }, ...keys.flatMap(([k, t]) => [el('span', { class: 'k' }, ...k.map((x) => (x === '–' ? el('span', {}, '–') : el('kbd', {}, x)))), el('span', {}, t)])));
   m.classList.remove('hidden');
@@ -1509,8 +1516,24 @@ api.onMenu((cmd) => ({
   onboarding: () => showOnboarding(0),
 })[cmd]?.());
 
+// Sprache wechseln: statisches HTML neu übersetzen, alles Dynamische neu aufbauen
+function applyLang(l) {
+  setLang(l);
+  document.documentElement.lang = getLang();
+  translateDom(document.body);
+  if (!$('#helpMenu').classList.contains('hidden')) { $('#helpMenu').classList.add('hidden'); toggleHelp(); }
+  if (!$('#onboarding').classList.contains('hidden')) renderOnboarding();
+  renderDocState();
+  refresh();
+  broadcast();
+}
+api.onLangChanged((l) => applyLang(l));
+
 // Start: letzte Sitzung wiederherstellen, sonst Beispielmodell laden
 (async function start() {
+  setLang(await api.getLang());
+  document.documentElement.lang = getLang();
+  translateDom(document.body);
   let mode = 'calibrate';
   try { mode = localStorage.getItem('kalib.mode') || mode; } catch { /* egal */ }
   setMode(mode);
