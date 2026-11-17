@@ -51,7 +51,16 @@ const result = await win.evaluate(async () => {
     const t = R.map((r) => -(r[0] * C[0] + r[1] * C[1] + r[2] * C[2]));
     return { R, t, f: 0.5 * 1920, cx: 965, cy: 1.186 * 1080, mirror: false };
   };
-  const cams = { P1: mk([0.5, -2.2, -3.2], [1.0, 1.8, -2.0], [0, 1, 0.1]), P2: mk([3.6, -2.2, -3.0], [3.0, 1.8, -1.8], [0, 1, 0.1]) };
+  // Innenring wie im echten Aufbau: jeder Beamer steht an der Säule und schaut frontal auf eine Wand
+  // (nicht in eine Ecke) und trifft unten fast die ganze Wandbreite.
+  const col = [2.0, 0, -1.8];
+  const inner = (dir, off, h, ty) => mk([col[0] + dir[0] * off, h, col[2] + dir[2] * off], [col[0] + dir[0] * 4, ty, col[2] + dir[2] * 4], dir.map((x) => -x));
+  const cams = {
+    P1: inner([0, 0, -1], 0.7, -2.3, -1.1),
+    P2: inner([1, 0, 0], 1.0, -2.0, -1.0),
+    P3: inner([-1, 0, 0], 1.0, -2.0, -1.0),
+    P4: inner([0, 0, 1], 0.7, -2.3, -1.1),
+  };
   const out = {};
   for (const [id, cam] of Object.entries(cams)) {
     const p = S.project.projectors.find((x) => x.id === id);
@@ -76,7 +85,7 @@ const result = await win.evaluate(async () => {
   refresh();
   return out;
 });
-await win.waitForFunction(() => window.__app.S.project.projectors[0].solution && window.__app.S.project.projectors[1].solution, null, { timeout: 30000 });
+await win.waitForFunction(() => window.__app.S.project.projectors.slice(0, 4).every((p) => p.solution), null, { timeout: 30000 });
 await win.waitForTimeout(800);
 await win.screenshot({ path: path.join(outDir, '02-kalibriert.png') });
 
@@ -94,7 +103,7 @@ await win.screenshot({ path: path.join(outDir, '03b-einrichten.png') });
 // Blending berechnen
 await win.click('#modes button[data-mode=blend]');
 await win.click('#btnComputeBlend');
-await win.waitForFunction(() => Object.keys(window.__app.S.blendImages).length >= 2, null, { timeout: 60000 });
+await win.waitForFunction(() => Object.keys(window.__app.S.blendImages).length >= 4, null, { timeout: 60000 });
 await win.waitForTimeout(300);
 await win.screenshot({ path: path.join(outDir, '04-blending.png') });
 await win.click('#modes button[data-mode=output]');
@@ -125,7 +134,7 @@ await outWin.waitForTimeout(1500);
 await outWin.screenshot({ path: path.join(outDir, '07-ausgang-A-raster.png') });
 await win.evaluate(() => window.__app.toggleOutputs(false));
 
-const sol = await win.evaluate(() => window.__app.S.project.projectors.slice(0, 2).map((p) => ({ id: p.id, rms: p.solution.rms, center: p.solution.center, quality: window.__app.S.results[p.id]?.quality })));
+const sol = await win.evaluate(() => window.__app.S.project.projectors.slice(0, 4).map((p) => ({ id: p.id, rms: p.solution.rms, center: p.solution.center, quality: window.__app.S.results[p.id]?.quality })));
 console.log(JSON.stringify({ result, sol }, null, 1));
 console.log('Konsolen-Fehler/Warnungen:', errors.length ? errors : 'keine');
 await app.close();
