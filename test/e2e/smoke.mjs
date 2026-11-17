@@ -160,10 +160,39 @@ await win.waitForTimeout(300);
 await win.waitForFunction(() => Object.keys(window.__app.S.outStats).length > 0, null, { timeout: 10000 });
 await win.waitForTimeout(300);
 await win.screenshot({ path: path.join(outDir, '08b-wiedergabe.png') });
-console.log('Leistung:', await win.evaluate(() => document.getElementById('outStats')?.textContent));
-await win.evaluate(() => window.__app.setPlay('pause'));
+console.log('Leistung (Werkzeugleiste):', await win.evaluate(() => document.getElementById('fpsBadge')?.textContent));
 console.log('Video läuft:', { t1: +t1.toFixed(2), t2: +t2.toFixed(2) });
 if (!(t2 > t1 + 0.5 || t2 < t1)) errors.push('error: Video läuft im Ausgabefenster nicht');
+
+// Playlist: zweites Video anhängen, Ausgabe muss nach dem ersten wechseln
+await win.evaluate((f) => window.__app.addVideos([f]), path.join(root, 'test/fixtures/testvideo2.mp4'));
+await win.waitForFunction(() => window.__app.S.project.playback.items.every((it) => it.duration > 0), null, { timeout: 15000 });
+await win.evaluate(() => { const { S, jumpTo } = window.__app; jumpTo(0); S.play = { ...S.play, startedAt: Date.now() - 3200 }; window.__app.refresh(); });
+await outWin.waitForFunction(() => /testvideo2/.test(window.__out.video.currentSrc) && window.__out.video.currentTime > 0.3, null, { timeout: 15000 })
+  .catch(() => errors.push('error: Playlist wechselt nicht zum zweiten Video'));
+await win.waitForTimeout(400);
+await win.screenshot({ path: path.join(outDir, '08c-playlist.png') });
+// Bildrate begrenzen
+await win.evaluate(() => { window.__app.S.project.playback.fps = 12; window.__app.refresh(); });
+await win.waitForTimeout(4500);
+const capped = await win.evaluate(() => Math.max(...Object.values(window.__app.S.outStats).filter((x) => x.playing).map((x) => x.fps)));
+console.log('Bildrate bei 12 fps Grenze:', capped.toFixed(1));
+if (!(capped <= 13.5)) errors.push(`error: Bildratengrenze greift nicht (${capped})`);
+await win.evaluate(() => { window.__app.S.project.playback.fps = 0; window.__app.refresh(); });
+// Ton: einschalten, Pegel muss ankommen (Testvideo 2 hat Stereo-Ton)
+await win.evaluate(() => { const { S } = window.__app; S.project.audio.enabled = true; S.project.audio.speakers = 2; S.ui = { ...(S.ui || {}), audioMix: true, audioSetup: true }; window.__app.refresh(); });
+await win.waitForTimeout(1500);
+const audioInfo = await win.evaluate(() => ({ info: window.__app.audio.info(), levels: window.__app.audio.levels() }));
+console.log('Ton:', JSON.stringify(audioInfo));
+await win.evaluate(() => document.getElementById('mixer')?.scrollIntoView());
+await win.waitForTimeout(300);
+await win.screenshot({ path: path.join(outDir, '08d-ton.png') });
+await win.evaluate(() => { window.__app.S.project.audio.enabled = false; window.__app.refresh(); });
+// Leertaste: Pause
+await win.click('#modes button[data-mode=output]');
+await win.keyboard.press('Space');
+await win.waitForTimeout(200);
+if (await win.evaluate(() => window.__app.S.play.playing)) errors.push('error: Leertaste pausiert nicht');
 // Feinkorrektur: Gitter verbiegen, Ausgabe muss sich ändern
 await win.evaluate(() => { window.__app.S.project.view.outputMode = 'grid'; window.__app.refresh(); });
 await outWin.waitForTimeout(800);

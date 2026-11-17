@@ -35,3 +35,14 @@ test('playState: Pause hält Position, Play setzt dort fort', () => {
   s = playState(s, 'restart', 10, 52000);
   assert.equal(targetTime(s, 10, 52500), 0.5);
 });
+
+test('Playlist: Position auf Einträge abbilden, alte Projekte lesen', async () => {
+  const { playlistOf, totalDuration, locate, startOf } = await import('../src/shared/playback.js');
+  assert.deepEqual(playlistOf({ src: '/v/a.mp4' }), [{ src: '/v/a.mp4', name: 'a.mp4' }]);
+  const items = [{ src: 'a', duration: 10 }, { src: 'x', error: true }, { src: 'b', duration: 5 }, { src: 'c' }];
+  assert.equal(totalDuration(items), 15);
+  assert.deepEqual(locate(items, 3), { index: 0, local: 3, start: 0 });
+  assert.deepEqual(locate(items, 12), { index: 2, local: 2, start: 10 });
+  assert.deepEqual(locate(items, 15), { index: 2, local: 5, start: 10 });
+  assert.equal(startOf(items, 2), 10);
+});

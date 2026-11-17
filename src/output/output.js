@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { buildModel, applySolutionToCamera, makeUvGridTexture } from '../shared/scene.js';
 import { quadrantRect } from '../shared/project.js';
 import { renderMaskCanvas } from '../shared/masks.js';
-import { fileUrl, targetTime, syncCorrection } from '../shared/playback.js';
+import { PlaylistPlayer } from '../shared/playlistPlayer.js';
 import { isIdentity, makeWarp } from '../shared/warp.js';
 import { drawWarpOverlay } from '../shared/warpdraw.js';
 import { tr, setLang } from '../shared/i18n.js';
@@ -105,49 +105,39 @@ const mats = {
   video: new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }),
 };
 
-// ---------------- Video
-const video = document.createElement('video');
-video.muted = true;
-video.playsInline = true;
-video.preload = 'auto';
-video.crossOrigin = 'anonymous';
-const videoTex = new THREE.VideoTexture(video);
-videoTex.colorSpace = THREE.NoColorSpace;
-mats.video.map = videoTex;
-let videoSrc = '';
-
-function ensureVideo(src) {
-  const url = fileUrl(src);
-  if (url === videoSrc) return;
-  videoSrc = url;
-  if (!url) { video.removeAttribute('src'); video.load(); return; }
-  video.src = url;
-  video.load();
-}
+// ---------------- Video (Playlist, siehe shared/playlistPlayer.js)
+const textures = new Map();
+const player = new PlaylistPlayer(() => {
+  const v = document.createElement('video');
+  v.muted = true;
+  v.playsInline = true;
+  v.preload = 'auto';
+  v.crossOrigin = 'anonymous';
+  const tex = new THREE.VideoTexture(v);
+  tex.colorSpace = THREE.NoColorSpace;
+  textures.set(v, tex);
+  v.addEventListener('loadedmetadata', () => { syncVideo(); draw(); });
+  v.addEventListener('seeked', () => { if (v === video) draw(false); });
+  v.requestVideoFrameCallback(function cb(now) { if (v === video) onFrame(now); v.requestVideoFrameCallback(cb); });
+  return v;
+}, (v) => { video = v; mats.video.map = textures.get(v); mats.video.needsUpdate = true; draw(false); });
+let video = player.el;
+mats.video.map = textures.get(video);
 
 /** Auf die gemeinsame Uhr abgleichen. Läuft alle 250 ms und bei jeder Zustandsänderung. */
 function syncVideo() {
-  const pb = st.project?.playback;
-  const want = st.project?.view.outputMode === 'video' && pb?.src;
-  if (!want || !st.play || !(video.duration > 0)) { if (!video.paused) video.pause(); return; }
-  video.loop = !!st.play.loop;
-  const target = targetTime(st.play, video.duration);
-  if (!st.play.playing) {
-    if (!video.paused) video.pause();
-    if (Math.abs(video.currentTime - target) > 0.04) video.currentTime = target;
-    return;
-  }
-  const c = syncCorrection(video.currentTime, target, video.duration, st.play.loop);
-  if (c.seek != null) video.currentTime = c.seek;
-  video.playbackRate = c.rate;
-  if (video.paused) video.play().catch(() => {});
+  if (st.project?.view.outputMode !== 'video') return player.stop();
+  player.sync(st.project.playback, st.play);
 }
 setInterval(syncVideo, 250);
-video.addEventListener('loadedmetadata', () => { syncVideo(); draw(); });
-video.addEventListener('seeked', () => draw(false));
-// jedes neue Videobild: nur die 3D-Ebene neu zeichnen, Masken und Overlay bleiben
-function onFrame() { draw(false); video.requestVideoFrameCallback(onFrame); }
-video.requestVideoFrameCallback(onFrame);
+// Bildrate begrenzen (Wiedergabe → Bildrate): Videobilder, die zu früh kommen, werden ausgelassen.
+let lastVideoDraw = 0;
+function onFrame(now) {
+  const cap = st.project?.playback?.fps || 0;
+  if (!cap || now - lastVideoDraw >= 1000 / cap - 4) { lastVideoDraw = now; draw(false); }
+  // Ende des Eintrags: sofort weiter, nicht erst beim nächsten Abgleich
+  if (video.duration > 0 && video.currentTime >= video.duration - 0.06 && !video.loop) syncVideo();
+}
 
 /** Planare Abbildung von oben (Draufsicht): Norden (−z) oben, Grundriss füllt das Video. */
 function planarGeometry() {
@@ -277,9 +267,8 @@ function reportPerf() {
   if (dt < 2) return;
   const q = video?.getVideoPlaybackQuality?.();
   const dropped = q ? q.droppedVideoFrames - perf.dropped0 : 0;
-  if (st.project?.view.outputMode === 'video' && st.play?.playing) {
-    api.sendOutputEvent({ type: 'stats', outputId, fps: perf.frames / dt, ms: perf.frames ? perf.ms / perf.frames : 0, dropped: Math.max(0, dropped) });
-  }
+  const playing = st.project?.view.outputMode === 'video' && !!st.play?.playing;
+  api.sendOutputEvent({ type: 'stats', outputId, playing, fps: perf.frames / dt, ms: perf.frames ? perf.ms / perf.frames : 0, dropped: playing ? Math.max(0, dropped) : 0 });
   perf.frames = 0; perf.ms = 0; perf.since = now; perf.dropped0 = q ? q.droppedVideoFrames : 0;
 }
 
@@ -452,7 +441,6 @@ api.onStateUpdate(async (msg) => {
     st.activeHandle = msg.activeHandle ?? null;
     st.activePin = msg.activePin ?? null;
     await ensureModel(msg.modelPath);
-    ensureVideo(st.project.view.outputMode === 'video' ? st.project.playback?.src : '');
     syncVideo();
     draw();
   } else if (msg.type === 'blend') {
@@ -467,6 +455,6 @@ api.onStateUpdate(async (msg) => {
   }
 });
 
-window.__out = { video, st };
+window.__out = { get video() { return video; }, player, st };
 resize();
 api.sendOutputEvent({ type: 'ready', outputId });

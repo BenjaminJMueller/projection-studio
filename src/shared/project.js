@@ -51,7 +51,8 @@ export function newProject() {
     },
     view: { outputMode: 'edges', showPoints: true, showMask: false, mouseFollow: false },
     td: { live: false, host: '127.0.0.1', port: 7000 },
-    playback: { src: null, name: null, mapping: 'top', loop: true },
+    playback: { items: [], mapping: 'top', loop: true, fps: 0 },
+    audio: { enabled: false, deviceId: '', sampleRate: 0, buffer: 1024, speakers: 2, master: 0, channels: [] },
   };
 }
 
@@ -108,6 +109,10 @@ export function migrateProject(p) {
   out.view = { ...base.view, ...(p.view || {}) };
   out.td = { ...base.td, ...(p.td || {}) };
   out.playback = { ...base.playback, ...(p.playback || {}) };
+  // ältere Projekte: ein einzelnes Video unter playback.src
+  if (!Array.isArray(p.playback?.items)) out.playback.items = p.playback?.src ? [{ src: p.playback.src, name: p.playback.name || p.playback.src.split(/[\\/]/).pop() }] : [];
+  delete out.playback.src; delete out.playback.name;
+  out.audio = { ...base.audio, ...(p.audio || {}) };
   out.outputs = (p.outputs || base.outputs).map((o) => ({ ...o }));
   if (!out.outputs.some((o) => o.solo)) out.outputs.push({ ...base.outputs[2] });
   out.projectors = (p.projectors || base.projectors).map((pj, i) => ({ ...base.projectors[i % 8], ...pj, color: base.projectors[i % 8].color }));

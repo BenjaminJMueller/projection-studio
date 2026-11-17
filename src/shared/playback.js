@@ -50,3 +50,47 @@ export function playState(prev, action, duration, now = Date.now()) {
   if (action === 'restart') return { playing: prev?.playing ?? false, startedAt: now, pausedAt: 0, loop };
   return prev;
 }
+
+// ---------------------------------------------------------------- Playlist
+// playback.items = [{ src, name, duration?, width?, height?, error? }]. Die gemeinsame Uhr läuft über
+// die ganze Liste; „Schleife“ wiederholt die Liste. Ein einzelnes Video verhält sich wie bisher.
+
+/** Einträge der Playlist; ältere Projekte mit nur playback.src werden als Liste mit einem Eintrag gelesen. */
+export function playlistOf(pb) {
+  if (Array.isArray(pb?.items)) return pb.items;
+  return pb?.src ? [{ src: pb.src, name: pb.name || pb.src.split(/[\\/]/).pop() }] : [];
+}
+
+/** Gesamtlänge in Sekunden (nur Einträge mit bekannter Länge). */
+export function totalDuration(items) {
+  let t = 0;
+  for (const it of items) if (it.duration > 0 && !it.error) t += it.duration;
+  return t;
+}
+
+/** Position t auf der Gesamtuhr → { index, local, start }. Einträge ohne Länge werden übersprungen. */
+export function locate(items, t) {
+  let start = 0, last = -1;
+  for (let i = 0; i < items.length; i++) {
+    const d = items[i].duration;
+    if (!(d > 0) || items[i].error) continue;
+    last = i;
+    if (t < start + d) return { index: i, local: Math.max(0, t - start), start };
+    start += d;
+  }
+  if (last < 0) return { index: 0, local: 0, start: 0 };
+  const d = items[last].duration;
+  return { index: last, local: d, start: start - d };
+}
+
+/** Beginn von Eintrag i auf der Gesamtuhr. */
+export function startOf(items, i) {
+  let s = 0;
+  for (let k = 0; k < i && k < items.length; k++) if (items[k].duration > 0 && !items[k].error) s += items[k].duration;
+  return s;
+}
+
+/** Wiedergabe an Position t (Sekunden) setzen, Zustand play/pause bleibt. */
+export function seekState(prev, t, now = Date.now()) {
+  return { ...prev, startedAt: now - t * 1000, pausedAt: t };
+}

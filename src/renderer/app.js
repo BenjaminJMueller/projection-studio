@@ -9,7 +9,8 @@ import { Preview } from './preview.js';
 import { computeBlendMasks } from './blend.js';
 import { makeBrowserStub } from './stub.js';
 import { icon, hydrateIcons } from './icons.js';
-import { fileUrl, targetTime, playState } from '../shared/playback.js';
+import { fileUrl, targetTime, playState, totalDuration, locate, startOf, seekState } from '../shared/playback.js';
+import { AudioEngine, MAX_SPEAKERS, SOURCE_CHANNELS, SAMPLE_RATES, BUFFER_SIZES, speakerAt } from './audio.js';
 import { defaultWarp, resizeWarp, isIdentity, inverse, gridBase, touchDesignerShader, makeWarp, GRID_SIZES, minJacobian, setBezierHandle } from '../shared/warp.js';
 import { visibleBezierHandles } from '../shared/warpdraw.js';
 import { tr, setLang, getLang, locale, LANGS, translateDom } from '../shared/i18n.js';
@@ -317,6 +318,8 @@ function refresh(light = false) {
     renderCalibrate();
     renderGuide();
     renderDocState();
+    renderTransport();
+    if (A().enabled) syncAudio();
     view.update(S.project, S.activeId, S.activePointId, S.pendingRepick, showSuggest() ? S.results[S.activeId]?.candidates : null);
     preview.mode = previewMode();
     preview.set(active(), S.activePointId, { activeHandle: S.activeHandle, activePin: S.activePin, suggest: showSuggest() ? S.results[S.activeId]?.suggest : null, activeMaskId: S.activeMaskId, blendImg: blendImgFor(S.activeId) });
@@ -905,8 +908,10 @@ function renderOutput() {
         ...TEST_MODES.map(([k, l, tip]) => el('button', { class: v.outputMode === k ? 'on' : '', 'data-tip': tip, 'data-mode': k, onclick: () => { v.outputMode = k; markDirty(); refresh(); } }, l)))),
       r('Masken anwenden', switchCtl(v.showMask, (on) => { v.showMask = on; if (on && !Object.keys(S.blendImages).length) computeBlend(); markDirty(); refresh(); }, { id: 'chkShowMask' }), { sub: 'Überblendung und eigene Masken' }),
     ),
-    gtitle('Wiedergabe', infoBtn('Spielt ein Video auf dem Modell ab, über alle Projektoren mit Überblendung und Masken. Beide HDMI-Ausgänge laufen synchron.')),
+    gtitle('Wiedergabe', infoBtn('Spielt Videos auf dem Modell ab, über alle Projektoren mit Überblendung und Masken. Mehrere Videos laufen nacheinander, die Reihenfolge lässt sich durch Ziehen ändern. Alle Ausgänge laufen synchron.')),
     playbackGroup(),
+    gtitle('Ton', infoBtn('Gibt den Ton der Videos über ein Audiogerät aus, mit bis zu 32 Kanälen. Zuordnung und Einzelpegel stehen unter „Kanäle und Pegel“.')),
+    audioGroup(),
     gtitle('TouchDesigner', infoBtn('Live senden schickt jede Änderung per OSC an TouchDesigner. Dort einen OSC In DAT mit osc_callbacks.py aus dem Export-Ordner anlegen.')),
     group(
       r('Live senden', switchCtl(td.live, (on) => { td.live = on; markDirty(); if (on) sendAllLive(); refresh(); }), { sub: td.live ? S.liveStatus || 'Bereit' : 'Aus' }),
@@ -919,82 +924,282 @@ function renderOutput() {
   btn.setAttribute('aria-pressed', String(isOpen));
 }
 
-// ---------- Wiedergabe
+// ---------- Wiedergabe: Playlist, Transport, Bildrate, Ton
 const fmtTime = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+const VIDEO_EXT = ['mp4', 'm4v', 'mov', 'webm', 'mkv'];
+const items = () => S.project.playback.items;
+const total = () => totalDuration(items());
+const audio = new AudioEngine();
+
+// Länge und Größe der Einträge nacheinander bestimmen (ein Element, nur Metadaten)
 const metaVideo = document.createElement('video');
 metaVideo.muted = true;
 metaVideo.preload = 'metadata';
-metaVideo.addEventListener('loadedmetadata', () => {
-  S.videoInfo = { duration: metaVideo.duration, width: metaVideo.videoWidth, height: metaVideo.videoHeight };
-  refresh();
-});
-metaVideo.addEventListener('error', () => { S.videoInfo = { error: true }; refresh(); });
-function loadVideoMeta() {
-  const src = S.project.playback.src;
-  S.videoInfo = null;
-  if (src) { metaVideo.src = fileUrl(src); metaVideo.load(); } else metaVideo.removeAttribute('src');
+let probing = null;
+function probeNext() {
+  if (probing) return;
+  probing = items().find((it) => it.duration == null && !it.error) || null;
+  if (!probing) { metaVideo.removeAttribute('src'); return; }
+  metaVideo.src = fileUrl(probing.src);
+  metaVideo.load();
 }
+function probeDone(info) {
+  const it = probing;
+  probing = null;
+  if (it) Object.assign(it, info);
+  updateVideoInfo();
+  broadcast();
+  refresh();
+  probeNext();
+}
+metaVideo.addEventListener('loadedmetadata', () => probeDone({ duration: metaVideo.duration, width: metaVideo.videoWidth, height: metaVideo.videoHeight }));
+metaVideo.addEventListener('error', () => probeDone({ error: true }));
+function updateVideoInfo() {
+  const t = total();
+  S.videoInfo = items().length ? (t > 0 ? { duration: t } : items().every((it) => it.error) ? { error: true } : null) : null;
+}
+function loadVideoMeta() { updateVideoInfo(); probing = null; probeNext(); }
 
 async function chooseVideo() {
-  const files = await api.openDialog({ title: 'Video wählen', filters: [{ name: 'Video', extensions: ['mp4', 'm4v', 'mov', 'webm', 'mkv'] }], properties: ['openFile'] });
-  if (files?.[0]) setVideo(files[0]);
+  const files = await api.openDialog({ title: 'Videos hinzufügen', filters: [{ name: 'Video', extensions: VIDEO_EXT }], properties: ['openFile', 'multiSelections'] });
+  if (files?.length) addVideos(files);
 }
-function setVideo(file) {
-  const pb = S.project.playback;
-  pb.src = file;
-  pb.name = file.split(/[\\/]/).pop();
-  S.play = { playing: false, startedAt: Date.now(), pausedAt: 0, loop: pb.loop };
+const itemOf = (file) => ({ src: file, name: file.split(/[\\/]/).pop() });
+function addVideos(files) {
+  const wasEmpty = !items().length;
+  items().push(...files.map(itemOf));
+  if (wasEmpty) S.play = { playing: false, startedAt: Date.now(), pausedAt: 0, loop: S.project.playback.loop };
   S.project.view.outputMode = 'video';
   loadVideoMeta();
   markDirty();
   refresh();
 }
+/** Ein einzelnes Video setzen (ersetzt die Liste). */
+function setVideo(file) {
+  S.project.playback.items = [itemOf(file)];
+  S.play = { playing: false, startedAt: Date.now(), pausedAt: 0, loop: S.project.playback.loop };
+  S.project.view.outputMode = 'video';
+  loadVideoMeta();
+  markDirty();
+  refresh();
+}
+/** Position halten, wenn sich die Liste ändert (Eintrag bleibt derselbe). */
+function editPlaylist(fn) {
+  const before = items(), cur = before.length ? before[locate(before, targetTime(S.play, total())).index] : null;
+  const local = cur ? locate(before, targetTime(S.play, total())).local : 0;
+  fn();
+  const i = cur ? items().indexOf(cur) : -1;
+  S.play = seekState(S.play, i >= 0 ? startOf(items(), i) + local : 0);
+  updateVideoInfo();
+  markDirty();
+  refresh();
+}
+function removeVideo(i) { editPlaylist(() => items().splice(i, 1)); }
+function moveVideo(from, to) { if (from !== to) editPlaylist(() => items().splice(to, 0, items().splice(from, 1)[0])); }
+
+function currentIndex() { return items().length ? locate(items(), targetTime(S.play, total())).index : -1; }
+function jumpTo(i) {
+  if (!items()[i]) return;
+  S.play = seekState(S.play, startOf(items(), i));
+  if (!S.play.playing) setPlay('play'); else refresh();
+}
+function step(d) {
+  const n = items().length;
+  if (!n) return;
+  const loc = locate(items(), targetTime(S.play, total()));
+  // „Zurück“ springt erst an den Anfang des Eintrags, nach 2 s an den vorigen
+  if (d < 0 && loc.local > 2) return jumpTo(loc.index);
+  jumpTo((loc.index + d + n) % n);
+}
 
 function setPlay(action) {
   const pb = S.project.playback;
-  if (!pb.src) return toast('Erst ein Video wählen.');
-  S.play = playState({ ...S.play, loop: pb.loop }, action, S.videoInfo?.duration || 0);
+  if (!items().length) return toast('Erst ein Video wählen.');
+  S.play = playState({ ...S.play, loop: pb.loop }, action, total());
   if (action === 'play') S.project.view.outputMode = 'video';
   if (action === 'play' && !S.openOutputs.size) toggleOutputs(true);
   refresh();
 }
+const togglePlay = () => setPlay(S.play.playing ? 'pause' : 'play');
+
+// Werkzeugleiste: Start/Pause und aktuelle Bildrate, immer sichtbar
+function renderTransport() {
+  const has = items().length > 0;
+  const b = $('#btnPlayTb');
+  b.disabled = !has;
+  b.classList.toggle('on', S.play.playing);
+  b.innerHTML = icon(S.play.playing ? 'pause' : 'play', 15);
+  const tip = tr(S.play.playing ? 'Pause (Leertaste)' : 'Abspielen (Leertaste)');
+  b.dataset.tip = tip; b.setAttribute('aria-label', tip);
+  showOutStats();
+}
 
 let playTicker = null;
+function tickPlayPos() {
+  const o = document.getElementById('playPos');
+  if (o) o.textContent = posText();
+  const ci = currentIndex();
+  document.querySelectorAll('#playlist .pl-row').forEach((r, i) => r.classList.toggle('cur', i === ci));
+}
+const posText = () => `${fmtTime(targetTime(S.play, total()))} / ${fmtTime(total())}`;
+
+function playlistRow(it, i, ci) {
+  const sub = it.error ? 'Lässt sich nicht abspielen' : it.duration == null ? 'Lädt …' : `${it.width} × ${it.height} · ${fmtTime(it.duration)}`;
+  const row = el('div', { class: `pl-row ${i === ci ? 'cur' : ''} ${it.error ? 'bad' : ''}`, draggable: 'true', 'data-i': i },
+    el('span', { class: 'grip', 'aria-hidden': 'true', html: icon('grip', 14) }),
+    el('span', { class: 'pl-n' }, String(i + 1)),
+    el('button', { class: 'pl-name', 'data-tip': it.src, onclick: () => jumpTo(i) }, el('b', {}, it.name), el('span', { class: 'sub' }, sub)),
+    el('button', { class: 'icon-btn', 'data-tip': 'Aus der Liste entfernen', 'aria-label': 'Aus der Liste entfernen', onclick: () => removeVideo(i), html: icon('close', 14) }));
+  row.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/x-pl', String(i)); e.dataTransfer.effectAllowed = 'move'; row.classList.add('dragging'); });
+  row.addEventListener('dragend', () => row.classList.remove('dragging'));
+  row.addEventListener('dragover', (e) => {
+    if (![...e.dataTransfer.types].includes('text/x-pl')) return;
+    e.preventDefault();
+    const below = e.offsetY > row.offsetHeight / 2;
+    row.classList.toggle('drop-above', !below); row.classList.toggle('drop-below', below);
+  });
+  row.addEventListener('dragleave', () => row.classList.remove('drop-above', 'drop-below'));
+  row.addEventListener('drop', (e) => {
+    const from = Number(e.dataTransfer.getData('text/x-pl'));
+    if (Number.isNaN(from)) return;
+    e.preventDefault();
+    let to = i + (e.offsetY > row.offsetHeight / 2 ? 1 : 0);
+    if (from < to) to--;
+    moveVideo(from, to);
+  });
+  return row;
+}
+
 function playbackGroup() {
   const pb = S.project.playback;
-  const info = S.videoInfo;
-  const dur = info?.duration || 0;
+  const list = items();
   clearInterval(playTicker);
-  if (S.play.playing && S.mode === 'output') playTicker = setInterval(() => { const o = document.getElementById('playPos'); if (o) o.textContent = `${fmtTime(targetTime(S.play, dur))} / ${fmtTime(dur)}`; }, 250);
-  const sub = !pb.src ? 'Kein Video gewählt' : info?.error ? 'Datei lässt sich nicht abspielen' : info ? `${info.width} × ${info.height} · ${fmtTime(dur)}` : 'Lädt …';
-  return group(
-    el('div', { class: 'r sw' },
-      el('div', { class: 'lbl', style: 'gap:10px' }, ic('play', 18),
-        el('span', { style: 'overflow:hidden' }, el('span', { style: 'display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis', 'data-tip': pb.src || '' }, pb.name || 'Video'), el('span', { class: 'sub' }, sub))),
-      el('div', { class: 'ctl' }, el('button', { class: 'btn', onclick: chooseVideo, id: 'btnVideo' }, pb.src ? 'Ändern …' : 'Wählen …'))),
-    pb.src ? el('div', { class: 'r sw' },
-      el('div', { class: 'lbl', style: 'gap:8px' },
-        el('button', { class: 'btn primary', id: 'btnPlay', style: 'min-width:92px', onclick: () => setPlay(S.play.playing ? 'pause' : 'play') }, ic(S.play.playing ? 'pause' : 'play', 14), S.play.playing ? 'Pause' : 'Abspielen'),
-        el('button', { class: 'icon-btn', 'data-tip': 'Von vorn', 'aria-label': 'Von vorn', onclick: () => setPlay('restart'), html: icon('restart') })),
-      el('div', { class: 'ctl' }, el('span', { class: 'muted', id: 'playPos' }, `${fmtTime(targetTime(S.play, dur))} / ${fmtTime(dur)}`))) : null,
-    r('Abbildung', select([['top', 'Draufsicht'], ['uv', 'Modell-UV']], pb.mapping, (v) => { pb.mapping = v; markDirty(); refresh(); }),
-      { tip: 'Draufsicht legt das Video wie von oben gesehen über den Grundriss, Norden oben. Modell-UV nutzt die Texturkoordinaten aus dem 3D-Modell.' }),
-    r('Schleife', switchCtl(pb.loop, (v) => { pb.loop = v; S.play = { ...S.play, loop: v }; markDirty(); refresh(); })),
-    pb.src && S.play.playing && S.openOutputs.size ? r('Leistung', el('span', { class: 'muted', id: 'outStats' }, outStatsText()),
-      { tip: 'Bilder pro Sekunde je HDMI-Ausgang und verworfene Videobilder. Liegt die Bildrate deutlich unter der des Videos, ist die Grafikkarte oder die Videodatei zu schwer.' }) : null,
-  );
+  if (S.play.playing && S.mode === 'output') playTicker = setInterval(tickPlayPos, 250);
+  const ci = currentIndex();
+  const pl = el('div', { id: 'playlist', class: 'playlist' }, ...list.map((it, i) => playlistRow(it, i, ci)));
+  // Dateien aus dem Finder/Explorer in die Liste ziehen
+  pl.addEventListener('dragover', (e) => { if ([...e.dataTransfer.types].includes('Files')) e.preventDefault(); });
+  pl.addEventListener('drop', (e) => {
+    const files = [...(e.dataTransfer.files || [])].map((f) => api.pathForFile?.(f) || f.path).filter((f) => f && VIDEO_EXT.includes(f.split('.').pop().toLowerCase()));
+    if (files.length) { e.preventDefault(); addVideos(files); }
+  });
+  return [
+    group(
+      list.length ? pl : el('div', { class: 'r' }, el('div', { class: 'lbl' }, el('span', {}, 'Keine Videos', el('span', { class: 'sub' }, 'Mehrere Videos laufen nacheinander.')))),
+      el('div', { class: 'r' }, el('div', { class: 'lbl' }, list.length > 1 ? el('span', { class: 'sub' }, `${list.length} Videos · ${fmtTime(total())}`) : null),
+        el('div', { class: 'ctl' }, el('button', { class: 'btn', onclick: chooseVideo, id: 'btnVideo' }, ic('plus', 14), 'Hinzufügen …'))),
+    ),
+    list.length ? group(
+      el('div', { class: 'r sw' },
+        el('div', { class: 'lbl', style: 'gap:6px' },
+          el('button', { class: 'btn primary', id: 'btnPlay', style: 'min-width:92px', onclick: togglePlay }, ic(S.play.playing ? 'pause' : 'play', 14), S.play.playing ? 'Pause' : 'Abspielen'),
+          list.length > 1 ? iconBtn('prev', 'Vorheriges Video', () => step(-1)) : null,
+          list.length > 1 ? iconBtn('next', 'Nächstes Video', () => step(1)) : null,
+          iconBtn('restart', 'Von vorn', () => setPlay('restart'))),
+        el('div', { class: 'ctl' }, el('span', { class: 'muted', id: 'playPos' }, posText()))),
+      r('Abbildung', select([['top', 'Draufsicht'], ['uv', 'Modell-UV']], pb.mapping, (v) => { pb.mapping = v; markDirty(); refresh(); }),
+        { tip: 'Draufsicht legt das Video wie von oben gesehen über den Grundriss, Norden oben. Modell-UV nutzt die Texturkoordinaten aus dem 3D-Modell.' }),
+      r(list.length > 1 ? 'Liste wiederholen' : 'Schleife', switchCtl(pb.loop, (v) => { pb.loop = v; S.play = { ...S.play, loop: v }; markDirty(); refresh(); })),
+      r('Bildrate', select(FPS_CHOICES.map((f) => [f, f ? `${f} fps` : 'Wie Video']), pb.fps || 0, (v) => { pb.fps = Number(v); markDirty(); refresh(); }),
+        { tip: 'Höchstens so viele Bilder pro Sekunde ausgeben. „Wie Video“ zeichnet jedes Videobild. Eine niedrigere Rate entlastet die Grafikkarte, z. B. 25 fps für Material mit 50 fps.' }),
+    ) : null,
+  ];
 }
+const FPS_CHOICES = [0, 24, 25, 30, 50, 60];
 
 function outStatsText() {
   const now = Date.now();
   const list = Object.values(S.outStats).filter((x) => now - x.at < 5000).sort((a, b) => String(a.outputId).localeCompare(String(b.outputId)));
-  if (!list.length) return 'Wird gemessen …';
+  if (!list.length) return '';
   return list.map((x) => `${x.outputId}: ${Math.round(x.fps)} fps${x.dropped ? ` · ${x.dropped} verworfen` : ''}`).join('   ');
 }
+/** Anzeige in der Werkzeugleiste: niedrigste Bildrate aller Ausgänge, Details im Tooltip. */
 function showOutStats() {
-  const o = document.getElementById('outStats');
-  if (o) o.textContent = tr(outStatsText());
+  const b = $('#fpsBadge');
+  const now = Date.now();
+  const list = Object.values(S.outStats).filter((x) => now - x.at < 5000 && S.openOutputs.size);
+  if (!list.length) { b.hidden = true; return; }
+  b.hidden = false;
+  const playing = list.some((x) => x.playing);
+  const min = Math.min(...list.map((x) => x.fps));
+  const target = S.project.playback.fps || 60;
+  b.textContent = playing ? `${Math.round(min)} fps` : tr('Standbild');
+  b.classList.toggle('warn', playing && min < target * 0.8 && min < 23);
+  b.dataset.tip = tr(playing ? `Bildrate je Ausgang: ${outStatsText()}` : 'Die Ausgänge zeichnen nur bei Änderungen neu.');
 }
+setInterval(showOutStats, 2000);
+
+// ---------- Ton
+const A = () => S.project.audio;
+let audioDevices = [];
+async function refreshAudioDevices() { audioDevices = await audio.devices(); }
+navigator.mediaDevices?.addEventListener?.('devicechange', async () => { await refreshAudioDevices(); if (S.mode === 'output') refresh(); });
+function syncAudio() { return audio.sync(S.project.playback, S.play, A()).catch((e) => console.warn('Ton:', e.message)); }
+setInterval(() => { if (A().enabled) syncAudio(); }, 250);
+
+const dbText = (db) => (db <= -60 ? '−∞' : `${db > 0 ? '+' : ''}${nf(db, 1)} dB`);
+function setSpeaker(k, patch, rebuild = true) {
+  const a = A();
+  for (let i = a.channels.length; i <= k; i++) a.channels[i] = speakerAt(a, i);
+  Object.assign(a.channels[k], patch);
+  markDirty();
+  syncAudio();
+  if (rebuild) refresh();
+}
+const ROUTES = () => [['off', 'Aus'], ...Array.from({ length: SOURCE_CHANNELS }, (_, i) => [String(i), `${i + 1}${i === 0 ? ' · L' : i === 1 ? ' · R' : ''}`]), ['sum', 'Mono']];
+
+function audioGroup() {
+  const a = A();
+  const info = audio.info();
+  const maxCh = Math.min(MAX_SPEAKERS, info?.maxChannels || MAX_SPEAKERS);
+  const dev = audioDevices.find((d) => d.deviceId === (a.deviceId || 'default')) || audioDevices.find((d) => d.deviceId === 'default');
+  const sub = !a.enabled ? 'Aus' : info ? `${dev?.label || 'Standardgerät'} · ${a.speakers} Kanäle · ${nf(info.sampleRate / 1000, 1)} kHz · ${nf(info.latency * 1000, 0)} ms` : 'Startet …';
+  const speakers = Array.from({ length: Math.min(a.speakers, maxCh) }, (_, k) => speakerAt(a, k));
+  return [
+    group(
+      r('Ton ausgeben', switchCtl(a.enabled, async (on) => { a.enabled = on; markDirty(); refresh(); if (on) await refreshAudioDevices(); await syncAudio(); refresh(); }, { id: 'swAudio' }), { sub }),
+      r('Gesamtpegel', rangeCtl(a.master, -60, 6, 0.5, dbText, (v) => { a.master = v; syncAudio(); }, () => markDirty())),
+    ),
+    more('audioSetup', 'Audiogerät',
+      group(
+        r('Gerät', select([['', 'Standardgerät des Systems'], ...audioDevices.filter((d) => d.deviceId !== 'default' && d.deviceId !== 'communications').map((d) => [d.deviceId, d.label || 'Gerät'])], a.deviceId,
+          async (v) => { a.deviceId = v; markDirty(); syncAudio().then(() => refresh()); }), { tip: 'Ausgabegerät, z. B. ein Mehrkanal-Interface. Unter Windows erscheinen hier die WDM/WASAPI-Geräte des Treibers, ASIO wird nicht unterstützt.' }),
+        r('Sample-Rate', select(SAMPLE_RATES.map((s) => [s, s ? `${nf(s / 1000, 1)} kHz` : 'Wie Gerät']), a.sampleRate, async (v) => { a.sampleRate = Number(v); markDirty(); syncAudio().then(() => refresh()); }),
+          { tip: 'Rate der Verarbeitung. Weicht sie vom Gerät ab, rechnet das System um. „Wie Gerät“ vermeidet das.' }),
+        r('Puffergröße', select(BUFFER_SIZES.map((b) => [b, `${b} Samples`]), a.buffer, async (v) => { a.buffer = Number(v); markDirty(); syncAudio().then(() => refresh()); }),
+          { tip: 'Wunschwert für das System. Größer ist stabiler, kleiner reagiert schneller. Bild und Ton werden um die tatsächliche Latenz ausgeglichen.' }),
+        r('Lautsprecher', select(Array.from({ length: maxCh }, (_, i) => [i + 1, String(i + 1)]), Math.min(a.speakers, maxCh), (v) => { a.speakers = Number(v); markDirty(); syncAudio(); refresh(); }),
+          { tip: `Anzahl der Ausgangskanäle. Das Gerät bietet ${info?.maxChannels ?? '?'} Kanäle, die App nutzt bis zu ${MAX_SPEAKERS}.` }),
+        info ? r('Tatsächlich', el('span', { class: 'muted' }, `${nf(info.sampleRate / 1000, 1)} kHz · ${nf(info.latency * 1000, 0)} ms Latenz`)) : null,
+      )),
+    more('audioMix', 'Kanäle und Pegel',
+      el('div', { class: 'group mixer', id: 'mixer' },
+        el('div', { class: 'mx-head' }, el('span', { 'data-tip': 'Ausgangskanal am Audiogerät' }, 'Nr.'), el('span', { 'data-tip': 'Kanal des Videos. Mono mischt alle Kanäle.' }, 'Quelle'), el('span', {}, 'Pegel'), el('span', {})),
+        ...speakers.map((c, k) => el('div', { class: `mx-row ${c.mute ? 'muted-ch' : ''}` },
+          el('span', { class: 'mx-n' }, String(k + 1)),
+          select(ROUTES(), String(c.route), (v) => setSpeaker(k, { route: v === 'off' || v === 'sum' ? v : Number(v) }), { 'aria-label': `Quelle für Ausgang ${k + 1}` }),
+          el('div', { class: 'mx-level' },
+            el('div', { class: 'meter', 'data-k': k }, el('i')),
+            rangeCtl(c.gain, -60, 6, 0.5, dbText, (v) => setSpeaker(k, { gain: v }, false), () => {})),
+          el('button', { class: `icon-btn ${c.mute ? 'on' : ''}`, 'data-tip': c.mute ? 'Ton an' : 'Stumm', 'aria-label': c.mute ? 'Ton an' : 'Stumm', html: icon(c.mute ? 'volumeOff' : 'volume', 14), onclick: () => setSpeaker(k, { mute: !c.mute }) }))),
+        el('div', { class: 'r' }, el('div', { class: 'lbl' }, el('span', { class: 'sub' }, 'Pegelanzeige nach Gesamt- und Einzelpegel')),
+          el('div', { class: 'ctl' }, el('button', { class: 'btn', onclick: () => { A().channels = []; markDirty(); syncAudio(); refresh(); } }, 'Zurücksetzen'))))),
+  ];
+}
+
+// Pegelanzeige nur, solange das Mischpult sichtbar ist und Ton läuft
+(function meterLoop() {
+  requestAnimationFrame(meterLoop);
+  const mx = document.getElementById('mixer');
+  if (!mx || !mx.offsetParent || !A().enabled || !S.play.playing) return;
+  const lv = audio.levels();
+  for (const m of mx.querySelectorAll('.meter')) {
+    const db = lv[Number(m.dataset.k)] ?? -90;
+    const f = Math.max(0, Math.min(1, (db + 60) / 60));
+    m.firstChild.style.clipPath = `inset(0 ${(100 - f * 100).toFixed(1)}% 0 0)`;
+    m.classList.toggle('clip', db > -0.5);
+  }
+})();
 
 // ------------------------------------------------------------------ TouchDesigner live (OSC)
 const liveTimers = {};
@@ -1126,6 +1331,7 @@ function handleKey(e) {
     return true;
   }
   if ((e.key === 'Delete' || e.key === 'Backspace') && pt) { deleteActivePoint(); return true; }
+  if (e.key === ' ' && items().length) { togglePlay(); return true; }
   if (e.key === 'Escape') { S.activePointId = null; S.pendingRepick = false; S.pickCenter = false; S.activeMaskId = null; $('#helpMenu').classList.add('hidden'); refresh(); return true; }
   if (/^[1-8]$/.test(e.key) && !e.ctrlKey && !e.metaKey) {
     const target = S.project.projectors[Number(e.key) - 1];
@@ -1458,6 +1664,7 @@ $('#btnUndo').onclick = undo;
 $('#btnRedo').onclick = redo;
 $('#btnHelp').onclick = toggleHelp;
 $('#btnOutputs').onclick = () => toggleOutputs();
+$('#btnPlayTb').onclick = () => togglePlay();
 $('#btnFocus').onclick = () => view.focus();
 document.querySelectorAll('#modes button').forEach((b) => { b.onclick = () => setMode(b.dataset.mode); });
 document.querySelectorAll('#viewMode button').forEach((b) => {
@@ -1560,5 +1767,5 @@ api.onLangChanged((l) => applyLang(l));
   await syncOpenOutputs();
   refresh();
   if (!onboardingSeen()) showOnboarding(0);
-  window.__app = { S, view, refresh, assignDisplay, setVideo, setPlay, scheduleSolve, selectPoint, computeBlend, toggleOutputs, setMode, showOnboarding, closeOnboarding, ready: true };
+  window.__app = { S, view, refresh, assignDisplay, setVideo, addVideos, jumpTo, audio, setPlay, scheduleSolve, selectPoint, computeBlend, toggleOutputs, setMode, showOnboarding, closeOnboarding, ready: true };
 })();
