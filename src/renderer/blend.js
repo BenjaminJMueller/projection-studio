@@ -35,9 +35,12 @@ function buildShader(n) {
           float zf = linZ(ndc.z * 0.5 + 0.5), zd = linZ(d);
           if (zf <= zd * 1.01 + uBias) {
             float e = min(1.0 - abs(ndc.x), 1.0 - abs(ndc.y));
-            wq = smoothstep(0.0, uWidth, e) + 1e-6;
             vec3 toP = uC${i} - vWorld; float dist = length(toP); vec3 dir = toP / dist;
-            float cosT = max(abs(dot(n, dir)), 0.05);
+            float cosRaw = abs(dot(n, dir));
+            // Streiflicht: zu flach getroffene Flächen nicht bespielen
+            float inc = uIncOn > 0.5 ? smoothstep(uIncCos - 0.06, uIncCos + 0.06, cosRaw) : 1.0;
+            wq = (smoothstep(0.0, uWidth, e) + 1e-6) * inc * faceOk;
+            float cosT = max(cosRaw, 0.05);
             float cosA = max(dot(uAx${i}, -dir), 0.05);
             eq = cosT / (dist * dist * cosA * cosA * cosA);
           }
@@ -57,11 +60,14 @@ function buildShader(n) {
       uniform int uSelf; uniform float uWidth; uniform float uBias; uniform float uNear; uniform float uFar;
       uniform float uAuto; uniform float uBright; uniform float uStrength; uniform float uEref; uniform float uGamma;
       uniform int uMode; // 0 = Maske, 1 = log(E) kodiert
+      uniform float uTiltOn; uniform float uTiltCos; uniform float uIncOn; uniform float uIncCos;
       ${decl}
       float linZ(float z){ float zn = z * 2.0 - 1.0; return 2.0 * uNear * uFar / (uFar + uNear - zn * (uFar - uNear)); }
       float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
       void main(){
         vec3 n = normalize(vNormal);
+        // Flächenfilter: steile Flächen (z. B. Seiten der Bögen) für alle Projektoren ausblenden
+        float faceOk = uTiltOn > 0.5 ? smoothstep(uTiltCos - 0.05, uTiltCos + 0.05, abs(n.y)) : 1.0;
         float wSelf = 0.0, eSelf = 0.0, wSum = 0.0;
         ${body}
         if (uMode == 1) {
@@ -73,6 +79,8 @@ function buildShader(n) {
         float a = 1.0;
         if (uAuto > 0.5) a = wSum > 1e-5 ? wSelf / wSum : 1.0;
         if (wSelf <= 0.0 && eSelf <= 0.0) a = 1.0; // verdeckter Teil: eigener Projektor sieht ihn trotzdem
+        if (uAuto < 0.5) a *= wSelf > 0.0 ? 1.0 : (eSelf > 0.0 ? 0.0 : 1.0);
+        if (eSelf > 0.0 && wSelf <= 1e-5) a = 0.0; // vom Filter ausgeschlossen
         float g = 1.0;
         if (uBright > 0.5 && eSelf > 0.0) g = mix(1.0, min(1.0, uEref / eSelf), uStrength);
         float o = pow(clamp(a * g, 0.0, 1.0), 1.0 / uGamma);
@@ -112,6 +120,8 @@ export function computeBlendMasks(model, project, { previewWidth = 480 } = {}) {
     uNear: { value: near }, uFar: { value: far },
     uAuto: { value: b.auto ? 1 : 0 }, uBright: { value: b.brightness ? 1 : 0 }, uStrength: { value: b.brightnessStrength },
     uEref: { value: 1 }, uGamma: { value: b.gamma || 2.2 }, uMode: { value: 0 },
+    uTiltOn: { value: b.tiltFilter ? 1 : 0 }, uTiltCos: { value: Math.cos(((b.maxTilt ?? 65) * Math.PI) / 180) },
+    uIncOn: { value: b.incFilter ? 1 : 0 }, uIncCos: { value: Math.cos(((b.maxIncidence ?? 80) * Math.PI) / 180) },
   };
   projs.forEach((p, i) => {
     const s = p.solution;

@@ -42,6 +42,10 @@ export function newProject() {
       brightness: true,
       brightnessStrength: 0.6,
       exportScale: 1,
+      tiltFilter: true, // steile Flächen (Seiten der Bögen) ausblenden
+      maxTilt: 65, // Grad Neigung gegenüber der Waagerechten, ab der ausgeblendet wird
+      incFilter: true, // Streiflicht ausblenden
+      maxIncidence: 80,
     },
     view: { outputMode: 'edges', showPoints: true, showMask: false },
     td: { live: false, host: '127.0.0.1', port: 7000 },

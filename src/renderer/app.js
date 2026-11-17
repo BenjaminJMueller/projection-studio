@@ -513,6 +513,11 @@ function renderBlendTab() {
     row('Breite', rangeCtl(b.width, 0.05, 1, 0.05, (v) => `${nf(v * 100, 0)} %`, null, (v) => set('width', v))),
     row('Gamma', input(b.gamma, (v) => set('gamma', v), 'number', { step: 0.1, min: 1, max: 3 }), 'Gamma der Beamer, meist 2,2. Verhindert dunkle oder helle Streifen in der Überblendung.'),
     el('div', { class: 'sep' }),
+    row('Steile Flächen', switchCtl(b.tiltFilter, (v) => set('tiltFilter', v)), 'Blendet Flächen aus, die steiler als der Grenzwinkel stehen, z. B. die Seiten der Bögen. Gilt für alle Projektoren, damit die Bilder zusammenpassen.'),
+    row('ab Neigung', rangeCtl(b.maxTilt, 30, 89, 1, (v) => `${v}°`, null, (v) => set('maxTilt', v))),
+    row('Streiflicht', switchCtl(b.incFilter, (v) => set('incFilter', v)), 'Blendet Flächen aus, die ein Projektor nur sehr flach trifft. Dort ist das Bild stark verzerrt und unscharf.'),
+    row('ab Winkel', rangeCtl(b.maxIncidence, 50, 89, 1, (v) => `${v}°`, null, (v) => set('maxIncidence', v))),
+    el('div', { class: 'sep' }),
     row('Helligkeit', switchCtl(b.brightness, (v) => set('brightness', v)), 'Weiter entfernte oder schräg getroffene Flächen sind dunkler. Hellere Bereiche werden auf ein gemeinsames Niveau gedimmt.'),
     row('Stärke', rangeCtl(b.brightnessStrength, 0, 1, 0.05, (v) => `${nf(v * 100, 0)} %`, null, (v) => set('brightnessStrength', v)), '100 % gleicht vollständig an und kostet am meisten Gesamthelligkeit'),
   );
