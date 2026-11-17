@@ -33,7 +33,7 @@
       "td/**/*",
       "examples/**/*",
       "node_modules/three/build/three.module.js",
-      "node_modules/three/examples/jsm/**/*",
+      "node_modules/three/LICENSE",
       "package.json"
     ],
     "asarUnpack": [

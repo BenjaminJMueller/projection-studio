@@ -106,7 +106,7 @@ export class Preview {
       g.font = `${12 * px}px sans-serif`;
       const right = s.u > this.W * 0.7;
       g.textAlign = right ? 'right' : 'left';
-      g.fillText('nächster Punkt hier', s.u + (right ? -32 : 32) * px, s.v + 4 * px);
+      g.fillText('nächster Punkt', s.u + (right ? -32 : 32) * px, s.v + 4 * px);
       g.textAlign = 'left';
     }
     // Punkte

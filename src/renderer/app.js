@@ -8,6 +8,7 @@ import { View3D } from './view3d.js';
 import { Preview } from './preview.js';
 import { computeBlendMasks } from './blend.js';
 import { makeBrowserStub } from './stub.js';
+import { icon, hydrateIcons } from './icons.js';
 
 const api = window.api || makeBrowserStub();
 const $ = (s) => document.querySelector(s);
@@ -268,8 +269,7 @@ function refresh(light = false) {
     renderGuide();
     view.update(S.project, S.activeId, S.activePointId, S.pendingRepick, S.results[S.activeId]?.candidates);
     preview.set(active(), S.activePointId, { suggest: S.results[S.activeId]?.suggest, activeMaskId: S.activeMaskId, blendImg: blendImgFor(S.activeId) });
-    $('#previewTitle').textContent = `Projektorbild ${active().name}`;
-    $('#previewRes').textContent = `${active().resolution[0]}×${active().resolution[1]} · ${outputLabel(active())}`;
+    $('#previewCaption').replaceChildren(el('span', {}, el('b', {}, active().name), `  ${outputLabel(active())}`), el('span', {}, `${active().resolution[0]} × ${active().resolution[1]}`));
     $('#btnUndo').disabled = !undoStack.length;
     $('#btnRedo').disabled = !redoStack.length;
     broadcast();
@@ -290,54 +290,73 @@ function blendImgFor(id) {
   return img;
 }
 
+const nf = (n, d = 1, group = false) => Number(n).toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: d, useGrouping: group });
+const QUAD_SHORT = ['oben links', 'oben rechts', 'unten links', 'unten rechts'];
+
 function outputLabel(p) {
   const o = S.project.outputs.find((x) => x.id === p.output);
-  if (!o) return 'kein Ausgang';
-  return `${o.name} ${o.layout === '2x2' ? QUADRANT_NAMES[p.quadrant] : ''}`;
+  if (!o) return 'Kein Ausgang';
+  return o.layout === '2x2' ? `${o.name} · ${QUAD_SHORT[p.quadrant]}` : o.name;
 }
 
 function statusOf(p) {
   const n = p.points.filter((x) => x.enabled && x.world && x.image).length;
   const r = S.results[p.id];
-  if (!p.solution) return { cls: '', text: n ? `${n} Pkt.` : 'offen' };
+  if (!p.solution) return { color: null, text: n ? `${n}/4` : '' };
   const q = r?.quality;
-  const cls = q === 'sehr gut' || q === 'gut' ? 'ok' : q === 'vorläufig' ? 'warn' : 'bad';
-  return { cls, text: `${p.solution.rms.toFixed(1)} px` };
+  const color = q === 'sehr gut' || q === 'gut' ? 'var(--ok)' : 'var(--warn)';
+  return { color, text: `${nf(p.solution.rms)} px` };
+}
+
+function projRow(p, i) {
+  const st = statusOf(p);
+  return el('div', { class: `proj-row ${p.id === S.activeId ? 'active' : ''} ${p.enabled ? '' : 'disabled'}`, onclick: () => selectProjector(p.id), 'data-tip': `Taste ${i + 1}`, role: 'button', tabindex: 0 },
+    el('span', { class: 'dot', style: `background:${p.color}` }),
+    el('span', { class: 't' }, el('span', { class: 'name' }, p.name), el('span', { class: 'sub' }, outputLabel(p))),
+    el('span', { class: 'val' }, st.text, st.color ? el('i', { style: `background:${st.color}` }) : null));
 }
 
 function renderProjList() {
-  const list = $('#projList');
-  list.replaceChildren(
-    ...S.project.projectors.map((p, i) => {
-      const st = statusOf(p);
-      return el('div', { class: `proj-card ${p.id === S.activeId ? 'active' : ''}`, onclick: () => selectProjector(p.id), title: `Taste ${i + 1}` },
-        el('div', { class: 'name' }, el('span', { class: 'dot', style: `background:${p.color}` }), p.name),
-        el('div', { class: 'meta' }, `${p.ring} · ${outputLabel(p)}`),
-        el('span', { class: `badge ${st.cls}` }, st.text));
-    }));
+  const ps = S.project.projectors;
+  $('#projListInner').replaceChildren(...ps.map((p, i) => [p, i]).filter(([p]) => p.ring !== 'außen').map(([p, i]) => projRow(p, i)));
+  $('#projListOuter').replaceChildren(...ps.map((p, i) => [p, i]).filter(([p]) => p.ring === 'außen').map(([p, i]) => projRow(p, i)));
 }
 
-function row(label, control, title) {
-  return el('div', { class: 'row', title }, el('label', {}, label), control);
+function infoBtn(tip) {
+  const b = el('button', { class: 'info', 'data-tip': tip, 'aria-label': 'Info', type: 'button' });
+  b.innerHTML = icon('info', 14);
+  return b;
+}
+function row(label, control, tip) {
+  return el('div', { class: 'row' }, el('label', {}, label, tip ? infoBtn(tip) : null), control);
 }
 function select(options, value, onchange) {
-  const s = el('select', { onchange: (e) => onchange(e.target.value) }, ...options.map(([v, l]) => el('option', { value: v, selected: String(v) === String(value) }, l)));
-  return s;
+  return el('select', { onchange: (e) => onchange(e.target.value) }, ...options.map(([v, l]) => el('option', { value: v, selected: String(v) === String(value) }, l)));
 }
 function input(value, onchange, type = 'text', attrs = {}) {
   return el('input', { type, value, ...attrs, onchange: (e) => onchange(type === 'number' ? Number(e.target.value) : e.target.value) });
+}
+function rangeCtl(value, min, max, step, fmt, oninput, onchange) {
+  const out = el('output', {}, fmt(value));
+  const r = el('input', { type: 'range', min, max, step, value, oninput: (e) => { out.textContent = fmt(Number(e.target.value)); oninput?.(Number(e.target.value)); }, onchange: (e) => onchange(Number(e.target.value)) });
+  return el('div', { class: 'range' }, r, out);
+}
+function switchCtl(checked, onchange) {
+  return el('input', { type: 'checkbox', class: 'switch', checked, onchange: (e) => onchange(e.target.checked) });
 }
 
 function renderSettings() {
   const p = active();
   const lens = getLensPreset(p.lens);
   const o = S.project.outputs.find((x) => x.id === p.output);
+  const s = p.solution;
   $('#projSettings').replaceChildren(
-    el('h3', {}, `Einstellungen ${p.name}`),
     row('Name', input(p.name, (v) => { p.name = v; markDirty(); refresh(); })),
-    row('Ausgang', select([...S.project.outputs.map((x) => [x.id, x.name]), ['', '– keiner –']], p.output, (v) => { p.output = v; markDirty(); refresh(); })),
-    o && o.layout === '2x2' ? row('Quadrant', select(QUADRANT_NAMES.map((n, i) => [i, n]), p.quadrant, (v) => { p.quadrant = Number(v); markDirty(); refresh(); })) : null,
-    row('Auflösung', select([['1920x1080', '1920 × 1080 (Full HD)'], ['1280x800', '1280 × 800 (WXGA)'], ['1280x720', '1280 × 720'], ['3840x2160', '3840 × 2160']], p.resolution.join('x'), (v) => {
+    row('Aktiv', switchCtl(p.enabled, (v) => { p.enabled = v; markDirty(); refresh(); })),
+    el('div', { class: 'sep' }),
+    row('Ausgang', select([...S.project.outputs.map((x) => [x.id, x.name]), ['', 'Keiner']], p.output, (v) => { p.output = v; markDirty(); refresh(); })),
+    o && o.layout !== '1x1' ? row('Bereich', select((o.layout === '2x2' ? QUAD_SHORT : ['links', 'rechts']).map((n, i) => [i, n]), p.quadrant, (v) => { p.quadrant = Number(v); markDirty(); refresh(); })) : null,
+    row('Auflösung', select([['1920x1080', '1920 × 1080'], ['1280x800', '1280 × 800'], ['1280x720', '1280 × 720'], ['3840x2160', '3840 × 2160']], p.resolution.join('x'), (v) => {
       pushUndo();
       const [w, h] = v.split('x').map(Number);
       const sx = w / p.resolution[0], sy = h / p.resolution[1];
@@ -346,25 +365,26 @@ function renderSettings() {
       p.solution = null;
       scheduleSolve(p);
       markDirty(); refresh();
-    })),
-    row('Objektiv', select(LENS_PRESETS.map((l) => [l.id, l.name]), p.lens, (v) => { p.lens = v; scheduleSolve(p); markDirty(); refresh(); })),
-    el('div', { class: 'lens-note' }, lens.note),
-    row('Montage', select([['auto', 'automatisch erkennen'], ['normal', 'Achse unter dem Bild'], ['flipped', 'Achse über dem Bild (kopfüber)']], p.mountMode, (v) => { p.mountMode = v; scheduleSolve(p); markDirty(); refresh(); }),
-      'Bei Kurzdistanz-Beamern liegt das Bild komplett auf einer Seite der Objektivachse. Je nach Menü-Einstellung (Decke/Tisch) oben oder unten.'),
+    }), 'Auflösung des Signals, das der Beamer bekommt, nicht die native Panelauflösung'),
+    el('div', { class: 'sep' }),
+    row('Objektiv', select(LENS_PRESETS.map((l) => [l.id, l.name]), p.lens, (v) => { p.lens = v; scheduleSolve(p); markDirty(); refresh(); }), lens.note),
+    row('Montage', select([['auto', 'Automatisch'], ['normal', 'Achse unter dem Bild'], ['flipped', 'Achse über dem Bild']], p.mountMode, (v) => { p.mountMode = v; scheduleSolve(p); markDirty(); refresh(); }),
+      'Kurzdistanz-Beamer projizieren komplett auf eine Seite der Objektivachse. Je nach Menü-Einstellung (Decke/Tisch) liegt sie über oder unter dem Bild. Automatisch prüft beides.'),
+    el('div', { class: 'sep' }),
     row('TD-Kamera', input(p.tdCamera, (v) => { p.tdCamera = v; markDirty(); }), 'Name des Camera COMP in TouchDesigner'),
-    row('TD-Render', input(p.tdRender, (v) => { p.tdRender = v; markDirty(); }), 'Name des Render TOP (für die Masken-Verknüpfung)'),
-    row('Aktiv', el('input', { type: 'checkbox', checked: p.enabled, onchange: (e) => { p.enabled = e.target.checked; markDirty(); refresh(); } })),
-    p.solution ? el('div', { class: 'muted', style: 'margin-top:6px;line-height:1.5' },
-      `Wurfverhältnis ${p.solution.throwRatio.toFixed(3)} · Achse ${(p.solution.cy / p.resolution[1] * 100).toFixed(0)} % Bildhöhe`, el('br'),
-      `Position ${p.solution.center.map((v) => v.toFixed(2)).join(' / ')}`) : null,
+    row('TD-Render', input(p.tdRender, (v) => { p.tdRender = v; markDirty(); }), 'Name des Render TOP, hinter den die Maske gehängt wird'),
+    s ? el('div', { class: 'readout' },
+      `Wurfverhältnis ${nf(s.throwRatio, 3)}`, el('br'),
+      `Achse bei ${nf((s.cy / p.resolution[1]) * 100, 0)} % Bildhöhe`, el('br'),
+      `Position ${s.center.map((v) => nf(v, 2)).join(' / ')}`) : null,
   );
 }
 
 function renderOutputs() {
-  const box = $('#outputSettings');
-  const opts = [['', '– nicht zugewiesen –'], ...S.displays.map((d) => [d.id, `${d.index}: ${d.label} (${d.pixelSize.width}×${d.pixelSize.height})${d.primary ? ' · Hauptbildschirm' : ''}`])];
-  box.replaceChildren(...S.project.outputs.map((o) =>
-    row(o.name, el('div', { style: 'display:grid;grid-template-columns:1fr 70px;gap:4px' },
+  const opts = [['', 'Kein Bildschirm'], ...S.displays.map((d) => [d.id, `${d.label} (${d.pixelSize.width}×${d.pixelSize.height})`])];
+  $('#outputSettings').replaceChildren(...S.project.outputs.map((o) =>
+    el('div', { class: 'out-row' },
+      el('span', {}, o.name),
       select(opts, o.displayId ?? '', async (v) => {
         const old = o.displayId;
         o.displayId = v ? Number(v) : null;
@@ -376,15 +396,15 @@ function renderOutputs() {
         }
         refresh();
       }),
-      select([['2x2', '2×2'], ['1x2', '1×2'], ['1x1', '1×1']], o.layout, (v) => { o.layout = v; markDirty(); refresh(); })))));
+      select([['2x2', '2×2'], ['1x2', '1×2'], ['1x1', '1×1']], o.layout, (v) => { o.layout = v; markDirty(); refresh(); }))));
   document.querySelectorAll('#outputMode button').forEach((b) => b.classList.toggle('on', b.dataset.mode === S.project.view.outputMode));
   $('#chkShowMask').checked = S.project.view.showMask;
   const btn = $('#btnOutputs');
   btn.classList.toggle('on', S.openOutputs.size > 0);
-  btn.textContent = S.openOutputs.size ? `Ausgänge an (${S.openOutputs.size})` : 'Ausgänge aus';
+  btn.setAttribute('aria-pressed', String(S.openOutputs.size > 0));
 }
 
-function errClass(e) { return e < 3 ? 'err-ok' : e < 8 ? 'err-warn' : 'err-bad'; }
+function errClass(e) { return e < 3 ? 'e-ok' : e < 8 ? 'e-warn' : 'e-bad'; }
 
 function renderPointsTab() {
   const p = active();
@@ -393,87 +413,90 @@ function renderPointsTab() {
   const n = p.points.filter((x) => x.enabled && x.world && x.image).length;
   const q = $('#quality');
   if (s) {
-    const gcls = r.quality === 'sehr gut' || r.quality === 'gut' ? 'ok' : r.quality === 'vorläufig' ? 'warn' : 'bad';
+    const good = r.quality === 'sehr gut' || r.quality === 'gut';
+    q.className = 'summary';
     q.replaceChildren(
-      el('div', { class: `grade ${gcls}` }, `Kalibrierung: ${r.quality || '–'}`),
-      kpi(`${s.rms.toFixed(2)} px`, 'Mittl. Fehler'),
-      kpi(`±${(s.sigmaCenter * 100).toFixed(1)} cm`, 'Positions-Unsich.'),
-      kpi(`${n}`, 'Punkte'),
-      kpi(`${Math.round(s.coverage * 100)} %`, 'Bildabdeckung'));
+      el('div', { class: 'state' }, el('i', { style: `background:${good ? 'var(--ok)' : 'var(--warn)'}` }), `Kalibrierung ${r.quality || ''}`),
+      cell(`${nf(s.rms, 2)} px`, 'Mittl. Fehler'),
+      cell(`± ${nf(s.sigmaCenter * 100, 1)} cm`, 'Position'),
+      cell(String(n), 'Punkte'),
+      cell(`${nf(s.coverage * 100, 0)} %`, 'Abdeckung'));
   } else {
-    q.replaceChildren(el('div', { class: 'grade none' }, n < 4 ? `Noch ${4 - n} Punkt(e) bis zur ersten Lösung` : r.message || 'Rechne …'));
+    q.className = 'summary empty';
+    q.textContent = n < 4 ? `Noch ${4 - n} ${4 - n === 1 ? 'Punkt' : 'Punkte'} bis zur ersten Lösung` : r.message || 'Rechne …';
   }
-  $('#warnings').replaceChildren(...(r.warnings || []).map((w) => el('div', { class: w.level }, w.text)));
+  $('#warnings').replaceChildren(...(r.warnings || []).filter((w) => !(w.level === 'info' && /Vorläufige/.test(w.text))).map((w) => el('div', { class: w.level }, w.text)));
   const errs = new Map((s?.errors || []).map((e) => [e.id, e.error]));
   $('#pointRows').replaceChildren(...p.points.map((pt) => {
     const e = errs.get(pt.id);
     return el('tr', { class: `${pt.id === S.activePointId ? 'active' : ''} ${pt.enabled ? '' : 'disabled'}`, onclick: () => selectPoint(pt.id) },
-      el('td', {}, String(pt.id), pt.snapped ? ' ◆' : ''),
-      el('td', {}, pt.world ? pt.world.map((v) => v.toFixed(2)).join(', ') : '–'),
-      el('td', {}, pt.image ? pt.image.map((v) => v.toFixed(1)).join(', ') : '–'),
-      el('td', { class: e != null ? errClass(e) : '' }, e != null ? `${e.toFixed(1)}` : ''),
-      el('td', {}, el('input', { type: 'checkbox', title: 'Punkt verwenden', checked: pt.enabled, onclick: (ev) => ev.stopPropagation(), onchange: (ev) => { pushUndo(); pt.enabled = ev.target.checked; scheduleSolve(p); markDirty(); refresh(); } })));
+      el('td', { class: 'c-id' }, String(pt.id)),
+      el('td', { class: 'model', title: pt.world ? pt.world.map((v) => nf(v, 3)).join('  ') : '' }, pt.world ? pt.world.map((v) => nf(v, 2)).join('  ') : '–'),
+      el('td', { class: 'num' }, pt.image ? pt.image.map((v) => nf(v, 0)).join('  ') : '–'),
+      el('td', { class: `num ${e != null && pt.enabled ? errClass(e) : ''}` }, e != null ? nf(e, 1) : ''),
+      el('td', { class: 'c-on' }, el('input', { type: 'checkbox', 'aria-label': 'Punkt verwenden', title: 'Punkt verwenden', checked: pt.enabled, onclick: (ev) => ev.stopPropagation(), onchange: (ev) => { pushUndo(); pt.enabled = ev.target.checked; scheduleSolve(p); markDirty(); refresh(); } })));
   }));
   $('#btnDeletePoint').disabled = !activePoint();
   $('#btnRepick').disabled = !activePoint();
-  $('#btnRepick').classList.toggle('primary', S.pendingRepick);
+  $('#btnRepick').classList.toggle('on', S.pendingRepick);
+  $('#btnClearPoints').classList.toggle('hidden', !p.points.length);
 }
-const kpi = (v, l) => el('div', { class: 'kpi' }, el('div', { class: 'v' }, v), el('div', { class: 'l' }, l));
+const cell = (v, l) => el('div', { class: 'cell' }, el('div', { class: 'v' }, v), el('div', { class: 'l' }, l));
 
 function renderGuide() {
   const g = $('#guide');
   const p = active();
   const n = p.points.filter((x) => x.enabled && x.world && x.image).length;
-  let step, html;
+  let step = '', msg = '';
   if (!S.model) {
-    step = 'Start';
-    html = 'Lade zuerst dein <b>3D-Modell</b> (OBJ) über „3D-Modell …“ oben.';
+    msg = '<b>3D-Modell laden</b> über das Würfel-Symbol oben links';
   } else if (S.pendingRepick) {
     step = `Punkt ${S.activePointId}`;
-    html = 'Klicke im Modell auf die <b>neue 3D-Position</b> für diesen Punkt.';
-  } else if (activePoint() && n < 4) {
-    step = `Punkt ${S.activePointId} · ${p.name}`;
-    html = `Jetzt das <b>Fadenkreuz auf dem Projektor</b> genau auf dieselbe Stelle an der echten Decke bringen: Maus auf dem Projektor-Ausgang, in der Vorschau rechts ziehen oder <b>Pfeiltasten</b>.<br>Danach den nächsten Punkt im Modell anklicken. Noch <b>${4 - n}</b> bis zur ersten Lösung.`;
-  } else if (n === 0) {
-    step = `Schritt 1 · ${p.name}`;
-    html = 'Klicke im Modell auf eine <b>gut erkennbare Ecke</b> (z. B. Kreuzung von Gewölbegraten oder Rand der Wandstreifen). Der Punkt rastet an Ecken ein.<br>Tipp: Punkte weit auseinander und nahe an den Bildecken setzen.';
+    msg = 'Neue Stelle im Modell anklicken';
+  } else if (n === 0 && !activePoint()) {
+    step = `${p.name} · 1/4`;
+    msg = 'Eine <b>gut erkennbare Ecke</b> im Modell anklicken, weit außen im Bild beginnen';
+  } else if (activePoint() && !p.solution) {
+    step = `${p.name} · ${Math.min(n, 4)}/4`;
+    msg = 'Fadenkreuz auf dem Beamer an <b>dieselbe Stelle der echten Decke</b> bringen, dann den nächsten Punkt anklicken';
   } else if (!p.solution) {
-    step = p.name;
-    html = `Noch <b>${Math.max(0, 4 - n)}</b> Punkt(e). Wähle sie möglichst <b>weit auseinander</b> und in unterschiedlicher Höhe.`;
+    step = `${p.name} · ${n}/4`;
+    msg = 'Nächsten Punkt weit entfernt von den bisherigen wählen';
+  } else if (n < 6) {
+    step = `${p.name} · ${n}/6`;
+    msg = 'Kanten auf der Decke prüfen. Weitere Punkte dort setzen, wo es nicht passt, Vorschläge sind <b>blau</b> markiert';
   } else {
-    const r = S.results[p.id] || {};
-    step = `${p.name} · ${r.quality}`;
-    html = n < 6
-      ? 'Erste Lösung steht. Die Kanten werden jetzt live auf die Decke projiziert. Setze noch Punkte dort, wo sie <b>nicht passen</b>. Gute Kandidaten sind im Modell als <b>blaue Rauten</b> markiert.'
-      : 'Prüfe die projizierten Kanten an der Decke. Wo etwas abweicht: Punkt anklicken und mit Pfeiltasten nachschieben, oder dort einen neuen Punkt setzen.<br>Danach mit <b>1–8</b> den nächsten Projektor wählen.';
+    g.replaceChildren();
+    return;
   }
-  g.innerHTML = `<div class="step">${step}</div>${html}`;
+  g.innerHTML = `${step ? `<span class="step">${step}</span>` : ''}<span class="msg">${msg}</span>`;
 }
 
 function renderMaskTab() {
   const p = active();
   $('#maskList').replaceChildren(...p.masks.map((m) => el('div', { class: m.id === S.activeMaskId ? 'active' : '', onclick: () => { S.activeMaskId = m.id; refresh(); } },
-    `${m.name} · ${m.mode === 'hide' ? 'ausblenden' : 'nur hier zeigen'} · ${m.points.length} Pkt.${m.closed ? '' : ' (offen)'}`)));
+    el('span', {}, m.name), el('span', { class: 'meta' }, `${m.mode === 'hide' ? 'Ausblenden' : 'Nur hier'} · ${m.closed ? `${m.points.length} Ecken` : 'offen'}`))));
   const m = p.masks.find((x) => x.id === S.activeMaskId);
+  $('#btnDeleteMask').disabled = !m;
   $('#maskProps').replaceChildren(...(m ? [
+    el('div', { class: 'sep' }),
     row('Name', input(m.name, (v) => { m.name = v; markDirty(); refresh(); })),
-    row('Art', select([['hide', 'Bereich ausblenden'], ['show', 'Nur diesen Bereich zeigen']], m.mode, (v) => { pushUndo(); m.mode = v; markDirty(); refresh(); })),
-    row(`Weiche Kante (${m.feather} px)`, el('input', { type: 'range', min: 0, max: 300, value: m.feather, oninput: (e) => { m.feather = Number(e.target.value); e.target.parentElement.querySelector('label').textContent = `Weiche Kante (${m.feather} px)`; refresh(true); }, onchange: () => { markDirty(); refresh(); } })),
-    row('Aktiv', el('input', { type: 'checkbox', checked: m.enabled !== false, onchange: (e) => { m.enabled = e.target.checked; markDirty(); refresh(); } })),
-  ] : [el('p', { class: 'muted' }, 'Keine Maske gewählt.')]));
+    row('Wirkung', select([['hide', 'Bereich ausblenden'], ['show', 'Nur Bereich zeigen']], m.mode, (v) => { pushUndo(); m.mode = v; markDirty(); refresh(); })),
+    row('Weiche Kante', rangeCtl(m.feather, 0, 300, 1, (v) => `${v} px`, (v) => { m.feather = v; refresh(true); }, () => { markDirty(); refresh(); })),
+    row('Aktiv', switchCtl(m.enabled !== false, (v) => { m.enabled = v; markDirty(); refresh(); })),
+  ] : []));
 }
 
 function renderBlendTab() {
   const b = S.project.blend;
   const set = (k, v, re = true) => { b[k] = v; markDirty(); if (re) refresh(); };
   $('#blendSettings').replaceChildren(
-    row('Auto-Blending', el('input', { type: 'checkbox', checked: b.auto, onchange: (e) => set('auto', e.target.checked) })),
-    row(`Blend-Breite (${Math.round(b.width * 100)} %)`, el('input', { type: 'range', min: 0.05, max: 1, step: 0.05, value: b.width, onchange: (e) => set('width', Number(e.target.value)) }),
-      'Wie breit die weiche Überblendung innerhalb der Überlappung ist'),
-    row('Gamma', input(b.gamma, (v) => set('gamma', v), 'number', { step: 0.1, min: 1, max: 3 }), 'Gamma des Projektors (meist 2,2). Sorgt dafür, dass die Überblendung nicht dunkler/heller wird.'),
-    row('Helligkeitsausgleich', el('input', { type: 'checkbox', checked: b.brightness, onchange: (e) => set('brightness', e.target.checked) })),
-    row(`Stärke (${Math.round(b.brightnessStrength * 100)} %)`, el('input', { type: 'range', min: 0, max: 1, step: 0.05, value: b.brightnessStrength, onchange: (e) => set('brightnessStrength', Number(e.target.value)) }),
-      '100 % = überall gleich hell (kostet Gesamthelligkeit), 0 % = aus'),
+    row('Überblendung', switchCtl(b.auto, (v) => set('auto', v)), 'Weiche Überblendung, wo sich Projektoren überlappen. Gewichtet nach Abstand zum eigenen Bildrand.'),
+    row('Breite', rangeCtl(b.width, 0.05, 1, 0.05, (v) => `${nf(v * 100, 0)} %`, null, (v) => set('width', v))),
+    row('Gamma', input(b.gamma, (v) => set('gamma', v), 'number', { step: 0.1, min: 1, max: 3 }), 'Gamma der Beamer, meist 2,2. Verhindert dunkle oder helle Streifen in der Überblendung.'),
+    el('div', { class: 'sep' }),
+    row('Helligkeit', switchCtl(b.brightness, (v) => set('brightness', v)), 'Weiter entfernte oder schräg getroffene Flächen sind dunkler. Hellere Bereiche werden auf ein gemeinsames Niveau gedimmt.'),
+    row('Stärke', rangeCtl(b.brightnessStrength, 0, 1, 0.05, (v) => `${nf(v * 100, 0)} %`, null, (v) => set('brightnessStrength', v)), '100 % gleicht vollständig an und kostet am meisten Gesamthelligkeit'),
   );
 }
 
@@ -498,14 +521,12 @@ function sendAllLive() {
 function renderTdSettings() {
   const td = S.project.td;
   $('#tdSettings').replaceChildren(
-    el('label', { class: 'check', title: 'Jede Änderung der Kalibrierung sofort per OSC an TouchDesigner senden' },
-      el('input', { type: 'checkbox', checked: td.live, onchange: (e) => { td.live = e.target.checked; markDirty(); if (td.live) sendAllLive(); refresh(); } }), 'Live an TouchDesigner senden'),
-    el('div', { class: 'row', style: 'margin-top:6px' }, el('label', {}, 'Host / Port'),
-      el('div', { style: 'display:grid;grid-template-columns:1fr 70px;gap:4px' },
-        input(td.host, (v) => { td.host = v; markDirty(); }),
-        input(td.port, (v) => { td.port = v; markDirty(); }, 'number'))),
-    el('div', { class: 'point-actions' }, el('button', { class: 'small', onclick: sendAllLive, disabled: !td.live }, 'Alle jetzt senden')),
-    el('div', { class: 'muted', id: 'liveStatus', style: 'font-size:11px' }, S.liveStatus || (td.live ? 'bereit' : 'aus')),
+    el('label', { class: 'switch-row' }, el('span', {}, 'Live senden'), switchCtl(td.live, (v) => { td.live = v; markDirty(); if (v) sendAllLive(); refresh(); })),
+    el('div', { class: 'out-row', style: 'grid-template-columns:52px 1fr 64px' },
+      el('span', {}, 'Ziel'),
+      input(td.host, (v) => { td.host = v; markDirty(); }),
+      input(td.port, (v) => { td.port = v; markDirty(); }, 'number')),
+    el('div', { class: 'muted small', id: 'liveStatus', style: 'padding:2px 0 0 56px;font-size:11px' }, td.live ? S.liveStatus || 'Bereit' : ''),
   );
 }
 
@@ -710,13 +731,13 @@ function markDirty() {
 async function computeBlend() {
   const solved = S.project.projectors.filter((p) => p.solution && p.enabled);
   if (!S.model || !solved.length) return toast('Erst mindestens einen Projektor kalibrieren.');
-  $('#blendStatus').textContent = 'Berechne …';
+  $('#blendStatus').textContent = 'Rechnet …';
   await new Promise((r) => setTimeout(r, 30));
   const t0 = performance.now();
   const res = computeBlendMasks(S.model, S.project);
   S.blendImages = res;
   const ms = Math.round(performance.now() - t0);
-  $('#blendStatus').textContent = `${Object.keys(res).length} Masken berechnet (${ms} ms). Auf den Ausgängen sichtbar mit „Masken/Blending anwenden“.`;
+  $('#blendStatus').textContent = `${Object.keys(res).length} Masken · ${ms} ms`;
   broadcastBlend();
   refresh();
   return res;
@@ -821,6 +842,7 @@ document.querySelectorAll('#rightTabs button').forEach((b) => {
     document.querySelectorAll('#rightTabs button').forEach((x) => x.classList.toggle('on', x === b));
     document.querySelectorAll('.tab-body').forEach((x) => x.classList.toggle('hidden', x.dataset.tab !== b.dataset.tab));
     preview.mode = b.dataset.tab === 'masks' ? 'masks' : b.dataset.tab === 'blend' ? 'blend' : 'points';
+    document.querySelectorAll('#rightTabs button').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
     refresh();
   };
 });
@@ -834,9 +856,41 @@ document.querySelectorAll('#outputMode button').forEach((b) => {
   b.onclick = () => { S.project.view.outputMode = b.dataset.mode; markDirty(); refresh(); };
 });
 $('#chkShowMask').onchange = (e) => { S.project.view.showMask = e.target.checked; if (e.target.checked && !Object.keys(S.blendImages).length) computeBlend(); markDirty(); refresh(); };
-$('#chkCoverage').onchange = (e) => { view.showCoverage = e.target.checked; refresh(); };
-$('#chkFrustums').onchange = (e) => { view.showFrustums = e.target.checked; refresh(); };
-$('#chkSnap').onchange = (e) => { view.snap = e.target.checked; };
+function toolToggle(id, get, set) {
+  const b = $(id);
+  b.onclick = () => { set(!get()); b.classList.toggle('on', get()); b.setAttribute('aria-pressed', String(get())); refresh(); };
+}
+toolToggle('#tglCoverage', () => view.showCoverage, (v) => { view.showCoverage = v; });
+toolToggle('#tglFrustums', () => view.showFrustums, (v) => { view.showFrustums = v; });
+toolToggle('#tglSnap', () => view.snap, (v) => { view.snap = v; });
+
+// Tooltips (ersetzt lange Hilfetexte): erscheinen nach kurzer Verzögerung
+(function tooltips() {
+  const tip = $('#tooltip');
+  let timer, cur;
+  document.addEventListener('pointerover', (e) => {
+    const t = e.target.closest('[data-tip]');
+    if (t === cur) return;
+    cur = t;
+    clearTimeout(timer);
+    tip.classList.remove('show');
+    if (!t) return;
+    timer = setTimeout(() => {
+      tip.textContent = t.dataset.tip;
+      const r = t.getBoundingClientRect();
+      tip.style.left = '0px'; tip.style.top = '0px';
+      const w = tip.offsetWidth, h = tip.offsetHeight;
+      let x = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), innerWidth - w - 8);
+      let y = r.bottom + 8;
+      if (y + h > innerHeight - 8) y = r.top - h - 8;
+      tip.style.left = `${x}px`; tip.style.top = `${y}px`;
+      tip.classList.add('show');
+    }, t.classList.contains('info') ? 150 : 600);
+  });
+  document.addEventListener('pointerdown', () => { clearTimeout(timer); tip.classList.remove('show'); });
+})();
+document.body.classList.add(`platform-${api.platform}`);
+hydrateIcons();
 
 api.onMenu((cmd) => ({
   new: async () => { await applyProject(newProject()); const { examples } = await api.paths(); loadModelFromPath(`${examples}/Gewoelbedecke_mit_Wandstreifen_16k.obj`); },

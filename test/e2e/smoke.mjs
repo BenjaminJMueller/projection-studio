@@ -11,8 +11,9 @@ fs.mkdirSync(outDir, { recursive: true });
 
 const userData = fs.mkdtempSync('/tmp/kalib-');
 const app = await electron.launch({
-  executablePath: require(path.join(root, 'node_modules/electron')),
-  args: [root, '--no-sandbox', `--user-data-dir=${userData}`],
+  // APP_EXEC = fertig gebaute App testen, sonst aus dem Quellcode starten
+  executablePath: process.env.APP_EXEC || require(path.join(root, 'node_modules/electron')),
+  args: [...(process.env.APP_EXEC ? [] : [root]), '--no-sandbox', `--user-data-dir=${userData}`],
   cwd: root,
 });
 const errors = [];
@@ -20,6 +21,7 @@ const win = await app.firstWindow();
 win.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') errors.push(`${m.type()}: ${m.text()}`); });
 win.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 await win.setViewportSize({ width: 1600, height: 960 }).catch(() => {});
+if (process.env.THEME) await win.emulateMedia({ colorScheme: process.env.THEME });
 await win.waitForFunction(() => window.__app?.ready && window.__app.S.model, null, { timeout: 30000 }).catch((e) => { console.error(errors); throw e; });
 await win.screenshot({ path: path.join(outDir, '01-start.png') });
 

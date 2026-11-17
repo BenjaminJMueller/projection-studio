@@ -20,8 +20,14 @@ function createMainWindow() {
     height: 1000,
     minWidth: 1100,
     minHeight: 700,
-    backgroundColor: '#15171c',
+    backgroundColor: '#1e1e1f',
     title: 'Projektor-Kalibrator',
+    // Native Fensterleiste in die Werkzeugleiste integrieren (macOS: Ampel links, Windows: Schaltflächen rechts)
+    ...(isMac
+      ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 15 } }
+      : process.platform === 'win32'
+        ? { titleBarStyle: 'hidden', titleBarOverlay: { color: '#2b2b2d', symbolColor: '#ececee', height: 44 } }
+        : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,

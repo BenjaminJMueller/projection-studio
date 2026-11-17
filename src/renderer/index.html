@@ -8,126 +8,142 @@
   <script type="importmap">
     { "imports": {
         "three": "../../node_modules/three/build/three.module.js",
-        "three/addons/": "../../node_modules/three/examples/jsm/"
+        "three/addons/": "../vendor/three-addons/"
     } }
   </script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand"><span class="logo">◎</span> Projektor-Kalibrator</div>
-    <div class="project-name" id="projectName" title="Projektname">Neues Projekt</div>
-    <div class="spacer"></div>
-    <button id="btnModel" title="OBJ-Modell laden">3D-Modell …</button>
-    <button id="btnOpen" title="Projekt öffnen (Strg/Cmd+O)">Öffnen</button>
-    <button id="btnSave" title="Projekt speichern (Strg/Cmd+S)">Speichern</button>
-    <button id="btnUndo" class="icon" title="Rückgängig (Strg/Cmd+Z)">↶</button>
-    <button id="btnRedo" class="icon" title="Wiederholen">↷</button>
-    <button id="btnOutputs" class="toggle" title="Vollbild-Ausgänge auf den Projektoren öffnen/schließen">Ausgänge aus</button>
-    <button id="btnExport" class="primary" title="Kameras + Masken für TouchDesigner exportieren (Strg/Cmd+E)">Export für TouchDesigner</button>
+  <header class="toolbar">
+    <div class="tb-group">
+      <button class="tb" id="btnModel" data-tip="3D-Modell laden (OBJ)" aria-label="3D-Modell laden"><i data-icon="model"></i></button>
+      <button class="tb" id="btnOpen" data-tip="Projekt öffnen" aria-label="Projekt öffnen"><i data-icon="open"></i></button>
+      <button class="tb" id="btnSave" data-tip="Projekt speichern" aria-label="Projekt speichern"><i data-icon="save"></i></button>
+      <span class="tb-sep"></span>
+      <button class="tb" id="btnUndo" data-tip="Rückgängig" aria-label="Rückgängig"><i data-icon="undo"></i></button>
+      <button class="tb" id="btnRedo" data-tip="Wiederholen" aria-label="Wiederholen"><i data-icon="redo"></i></button>
+    </div>
+    <div class="tb-title"><span id="projectName">Neues Projekt</span></div>
+    <div class="tb-group right">
+      <div class="seg" id="viewMode" role="tablist" aria-label="Ansicht">
+        <button data-view="orbit" class="on" role="tab">Raum</button>
+        <button data-view="projector" role="tab">Projektor</button>
+      </div>
+      <span class="tb-sep"></span>
+      <button class="tb label" id="btnOutputs" data-tip="Vollbild auf den Projektoren ein/aus" aria-pressed="false"><i data-icon="projector"></i><span>Ausgabe</span></button>
+      <button class="tb primary" id="btnExport" data-tip="Kameras und Masken für TouchDesigner speichern"><i data-icon="export"></i><span>Exportieren</span></button>
+    </div>
   </header>
 
-  <main class="layout">
-    <aside class="panel left">
-      <section>
-        <h3>Projektoren</h3>
-        <div id="projList" class="proj-list"></div>
-      </section>
-      <section id="projSettings" class="settings"></section>
-      <section>
-        <h3>Ausgänge</h3>
+  <div class="layout">
+    <nav class="sidebar" aria-label="Projektoren">
+      <div class="side-section">
+        <div class="side-label">Innenring</div>
+        <div class="proj-list" id="projListInner"></div>
+      </div>
+      <div class="side-section">
+        <div class="side-label">Außenring</div>
+        <div class="proj-list" id="projListOuter"></div>
+      </div>
+
+      <div class="side-section">
+        <div class="side-label">Ausgabe</div>
         <div id="outputSettings"></div>
-        <div class="seg" id="outputMode" title="Was auf den Projektoren angezeigt wird">
-          <button data-mode="edges">Kanten</button>
-          <button data-mode="grid">Raster</button>
-          <button data-mode="white">Weiß</button>
-          <button data-mode="ident">Kennung</button>
-          <button data-mode="black">Schwarz</button>
+        <div class="field">
+          <span class="field-label">Testbild</span>
+          <div class="seg small" id="outputMode">
+            <button data-mode="edges" data-tip="Modellkanten">Kanten</button>
+            <button data-mode="grid" data-tip="UV-Raster">Raster</button>
+            <button data-mode="white" data-tip="Weiße Fläche, zeigt Blending und Helligkeit">Weiß</button>
+            <button data-mode="ident" data-tip="Projektornummer groß">Nr.</button>
+          </div>
         </div>
-        <label class="check"><input type="checkbox" id="chkShowMask" /> Masken/Blending auf Ausgang anwenden</label>
-      </section>
-      <section>
-        <h3>TouchDesigner live</h3>
+        <label class="switch-row"><span>Masken anwenden</span><input type="checkbox" class="switch" id="chkShowMask" /></label>
+      </div>
+
+      <div class="side-section">
+        <div class="side-label">TouchDesigner <button class="info" data-tip="Sendet jede Änderung per OSC an TouchDesigner. In TD: OSC In DAT mit osc_callbacks.py aus dem Export-Ordner." aria-label="Info"><i data-icon="info" data-size="14"></i></button></div>
         <div id="tdSettings"></div>
-      </section>
-    </aside>
+      </div>
+    </nav>
 
-    <section class="center">
-      <div class="viewbar">
-        <div class="seg" id="viewMode">
-          <button data-view="orbit" class="on" title="Frei drehen">Raum</button>
-          <button data-view="projector" title="Aus Sicht des Projektors">Projektor-Sicht</button>
-        </div>
-        <label class="check"><input type="checkbox" id="chkCoverage" checked /> Projektionen auf Modell</label>
-        <label class="check"><input type="checkbox" id="chkFrustums" checked /> Frustums</label>
-        <label class="check"><input type="checkbox" id="chkSnap" checked /> An Ecken einrasten <span class="kbd">Alt</span> = frei</label>
-        <div class="spacer"></div>
-        <button id="btnFocus" class="small" title="Ansicht auf Modell zentrieren">Zentrieren</button>
+    <main class="stage">
+      <canvas id="view3d" aria-label="3D-Ansicht. Klick auf das Modell setzt einen Punkt."></canvas>
+      <div class="stage-tools" role="toolbar" aria-label="Darstellung">
+        <button class="tool on" id="tglCoverage" data-tip="Projektionen auf dem Modell" aria-pressed="true"><i data-icon="layers"></i></button>
+        <button class="tool on" id="tglFrustums" data-tip="Projektorkegel" aria-pressed="true"><i data-icon="frustum"></i></button>
+        <button class="tool on" id="tglSnap" data-tip="An Modellecken einrasten (Alt gedrückt: frei)" aria-pressed="true"><i data-icon="magnet"></i></button>
+        <span class="tool-sep"></span>
+        <button class="tool" id="btnFocus" data-tip="Ansicht zentrieren" aria-label="Ansicht zentrieren"><i data-icon="focus"></i></button>
       </div>
-      <div class="view3d-wrap">
-        <canvas id="view3d"></canvas>
-        <div id="guide" class="guide"></div>
-        <div id="hoverInfo" class="hover-info"></div>
-      </div>
-    </section>
+      <div id="guide" class="hud" role="status"></div>
+      <div id="hoverInfo" class="coord"></div>
+    </main>
 
-    <aside class="panel right">
-      <div class="preview-head">
-        <h3 id="previewTitle">Projektorbild</h3>
-        <span class="muted" id="previewRes"></span>
-      </div>
+    <aside class="inspector" aria-label="Inspektor">
       <div class="preview-wrap" id="previewWrap">
         <canvas id="preview3d"></canvas>
-        <canvas id="preview2d"></canvas>
+        <canvas id="preview2d" aria-label="Projektorbild. Ziehen verschiebt den gewählten Punkt."></canvas>
       </div>
-      <div class="tabs" id="rightTabs">
-        <button data-tab="points" class="on">Punkte</button>
-        <button data-tab="masks">Masken</button>
-        <button data-tab="blend">Blending &amp; Helligkeit</button>
+      <div class="preview-caption" id="previewCaption"></div>
+
+      <div class="seg full" id="rightTabs" role="tablist">
+        <button data-tab="points" class="on" role="tab">Punkte</button>
+        <button data-tab="projector" role="tab">Projektor</button>
+        <button data-tab="masks" role="tab">Masken</button>
+        <button data-tab="blend" role="tab">Blending</button>
       </div>
-      <div class="tab-body" data-tab="points">
-        <div id="quality" class="quality"></div>
-        <div id="warnings" class="warnings"></div>
-        <div class="point-actions">
-          <button id="btnRepick" class="small" title="3D-Position des gewählten Punkts neu im Modell anklicken">3D neu wählen</button>
-          <button id="btnDeletePoint" class="small danger" title="Punkt löschen (Entf)">Löschen</button>
-          <button id="btnClearPoints" class="small" title="Alle Punkte dieses Projektors löschen">Alle löschen</button>
+
+      <section class="tab-body" data-tab="points">
+        <div id="quality" class="summary"></div>
+        <div id="warnings" class="notes"></div>
+        <div class="list-head">
+          <span>Punktpaare</span>
+          <div class="row-actions">
+            <button class="icon-btn" id="btnRepick" data-tip="3D-Position des gewählten Punkts neu wählen" aria-label="3D-Position neu wählen"><i data-icon="target"></i></button>
+            <button class="icon-btn" id="btnDeletePoint" data-tip="Gewählten Punkt löschen (Entf)" aria-label="Punkt löschen"><i data-icon="trash"></i></button>
+          </div>
         </div>
         <table class="points">
-          <thead><tr><th>#</th><th>Modell (x, y, z)</th><th>Projektor (px)</th><th>Fehler</th><th></th></tr></thead>
+          <thead><tr><th class="c-id">Nr.</th><th>Modell</th><th class="num">Bild (px)</th><th class="num">Fehler</th><th class="c-on"></th></tr></thead>
           <tbody id="pointRows"></tbody>
         </table>
-      </div>
-      <div class="tab-body hidden" data-tab="masks">
-        <p class="hint">Eigene Masken pro Projektor: Im Projektorbild oben klicken, um Eckpunkte zu setzen. Doppelklick oder <span class="kbd">Enter</span> schließt die Form. Punkte lassen sich verschieben.</p>
-        <div class="point-actions">
-          <button id="btnNewMask" class="small">+ Neue Maske</button>
-          <button id="btnDeleteMask" class="small danger">Maske löschen</button>
-        </div>
-        <div id="maskList" class="mask-list"></div>
-        <div id="maskProps"></div>
-      </div>
-      <div class="tab-body hidden" data-tab="blend">
-        <p class="hint">Aus der Kalibrierung aller Projektoren wird pro Projektor eine Maske berechnet: weiche Überblendung in Überlappungen und Ausgleich der Helligkeit (Abstand und Einfallswinkel). In TouchDesigner wird sie mit einem einzigen Multiply direkt nach dem Render angewendet.</p>
-        <div id="blendSettings"></div>
-        <div class="point-actions">
-          <button id="btnComputeBlend" class="primary">Masken berechnen</button>
-        </div>
-        <div id="blendStatus" class="muted"></div>
-      </div>
-    </aside>
-  </main>
+        <button class="link danger" id="btnClearPoints">Alle Punkte löschen</button>
+      </section>
 
-  <footer class="statusbar" id="statusbar">
-    <span><span class="kbd">Klick</span> aufs Modell = Punkt setzen</span>
-    <span><span class="kbd">←↑→↓</span> verschieben (<span class="kbd">⇧</span> ×10, <span class="kbd">Alt</span> ×0,25)</span>
-    <span><span class="kbd">Tab</span> nächster Punkt</span>
-    <span><span class="kbd">Entf</span> löschen</span>
-    <span><span class="kbd">1–8</span> Projektor wählen</span>
+      <section class="tab-body hidden" data-tab="projector">
+        <div id="projSettings" class="form"></div>
+      </section>
+
+      <section class="tab-body hidden" data-tab="masks">
+        <div class="list-head">
+          <span>Eigene Masken <button class="info" data-tip="Im Projektorbild oben klicken, um Eckpunkte zu setzen. Klick auf den ersten Punkt, Doppelklick oder Enter schließt die Form. Eckpunkte lassen sich ziehen." aria-label="Info"><i data-icon="info" data-size="14"></i></button></span>
+          <div class="row-actions">
+            <button class="icon-btn" id="btnNewMask" data-tip="Neue Maske" aria-label="Neue Maske"><i data-icon="plus"></i></button>
+            <button class="icon-btn" id="btnDeleteMask" data-tip="Maske löschen" aria-label="Maske löschen"><i data-icon="trash"></i></button>
+          </div>
+        </div>
+        <div id="maskList" class="plain-list"></div>
+        <div id="maskProps" class="form"></div>
+      </section>
+
+      <section class="tab-body hidden" data-tab="blend">
+        <div id="blendSettings" class="form"></div>
+        <div class="actions">
+          <button class="btn" id="btnComputeBlend"><i data-icon="refresh"></i><span>Masken berechnen</span></button>
+          <span class="muted small" id="blendStatus"></span>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <footer class="statusbar">
+    <span class="keys"><kbd>Klick</kbd> Punkt setzen <kbd>← ↑ → ↓</kbd> verschieben <kbd>⇧</kbd> ×10 <kbd>Tab</kbd> nächster Punkt <kbd>1–8</kbd> Projektor</span>
     <span class="spacer"></span>
     <span id="statusText"></span>
   </footer>
 
-  <div id="toast" class="toast"></div>
+  <div id="tooltip" class="tooltip" role="tooltip"></div>
+  <div id="toast" class="toast" role="status"></div>
   <script type="module" src="app.js"></script>
 </body>
 </html>
