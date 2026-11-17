@@ -4,9 +4,13 @@ Projection Studio bringt Projektoren und ein 3D-Modell des Raums zur Deckung. Ma
 
 ![Kalibrieren](docs/screenshots/02-kalibriert.png)
 
-## Wie es dazu kam
+## Warum es diese App gibt
 
-Angefangen hat alles mit einer Gewölbedecke: acht Epson-Kurzdistanzprojektoren, die über Spiegel am Boden nach oben strahlen, vier im Innenring um eine Mittelsäule, vier außen herum. Dazu zwei 4K-Ausgänge, die je vier Projektoren versorgen. Bisher lief das in TouchDesigner mit camSchnappr und Stoner. Das hat funktioniert, war aber mühsam. Mit wenigen oder eng beieinander liegenden Punkten ist die Lösung oft gekippt, und man hat nicht gesehen, wo der Projektor gerade steht.
+Angefangen hat alles mit einer Gewölbedecke. Acht Epson-Kurzdistanzprojektoren stehen am Boden und strahlen über Spiegel nach oben, vier im Innenring um eine Mittelsäule, vier außen herum. Das Bild wird im Projektormenü gespiegelt, und die Objektive haben einen großen Versatz nach oben. Zwei 4K-Ausgänge eines einzigen Rechners versorgen je vier Projektoren.
+
+Kalibriert haben wir das zuerst in TouchDesigner mit camSchnappr und danach mit Stoner nachgezogen. In der Praxis war das zäh. Die markanten Punkte liegen in so einem Gewölbe oft eng beieinander, und schon beim sechsten Punkt ist das Modell gerne gekippt oder ganz schwarz geworden. Es gab keine zweite Ansicht, in der man sieht, wo der Projektor gerade landet. Ob das Ergebnis brauchbar war, hing vor allem davon ab, welche Punkte man zufällig gewählt hatte, und so gingen Stunden mit Probieren drauf. MadMapper kam mit dem Aufbau gar nicht zurecht.
+
+Das Ziel war deshalb ein Werkzeug, das intuitiv ist, schnell zu einem stabilen Ergebnis kommt und alles an einem Ort erledigt: Kalibrieren mit Live-Ansicht, Überblenden, Feinkorrektur, Wiedergabe und die Übergabe an TouchDesigner.
 
 Daraus ist diese App entstanden. Nichts darin ist auf das Gewölbe festgelegt. Jedes OBJ-Modell funktioniert, ob Fassade, Bühnenbild, Kuppel oder Objekt. Es gibt Platz für bis zu acht Projektoren auf zwei Ausgängen, nicht gebrauchte schaltet man unter *Einrichten* ab. Auflösung, Objektiv und Aufteilung auf die Ausgänge lassen sich frei einstellen. Das Gewölbe liegt als Demo bei, und die Einführung beim ersten Start fragt, ob du damit oder mit einem eigenen Modell anfangen willst.
 
