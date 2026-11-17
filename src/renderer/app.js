@@ -1185,5 +1185,5 @@ api.onMenu((cmd) => ({
   await syncOpenOutputs();
   refresh();
   if (!onboardingSeen()) showOnboarding(0);
-  window.__app = { S, refresh, scheduleSolve, selectPoint, computeBlend, toggleOutputs, setMode, showOnboarding, closeOnboarding, ready: true };
+  window.__app = { S, view, refresh, scheduleSolve, selectPoint, computeBlend, toggleOutputs, setMode, showOnboarding, closeOnboarding, ready: true };
 })();

@@ -56,12 +56,12 @@ const result = await win.evaluate(async () => {
   const col = [2.0, 0, -1.8];
   const inner = (dir, off, h, ty) => mk([col[0] + dir[0] * off, h, col[2] + dir[2] * off], [col[0] + dir[0] * 4, ty, col[2] + dir[2] * 4], dir.map((x) => -x));
   const cams = {
-    // Steil nach oben: Bildunterkante liegt auf der Ecke Wand/Decke, möglichst viel Bild auf der Wölbung,
-    // die Wände selbst werden nicht bespielt.
-    P1: inner([0, 0, -1], 1.0, -2.0, 1.2),
-    P2: inner([1, 0, 0], 1.0, -1.6, 0.8),
-    P3: inner([-1, 0, 0], 1.0, -1.6, 0.8),
-    P4: inner([0, 0, 1], 1.0, -2.0, 1.2),
+    // Bildunterkante liegt auf der oberen Kante der gegenüberliegenden Wand (Ecke Wand/Decke, im Modell y ≈ 1,3),
+    // darüber nur Wölbung. Die Wände selbst werden nicht bespielt.
+    P1: inner([0, 0, -1], 1.0, -2.0, 0.65),
+    P2: inner([1, 0, 0], 1.0, -1.6, 0.4),
+    P3: inner([-1, 0, 0], 1.0, -1.6, 0.4),
+    P4: inner([0, 0, 1], 1.0, -2.0, 0.65),
   };
   const out = {};
   for (const [id, cam] of Object.entries(cams)) {
