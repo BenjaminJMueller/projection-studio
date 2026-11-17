@@ -44,6 +44,7 @@ export function newProject() {
       exportScale: 1,
     },
     view: { outputMode: 'edges', showPoints: true, showMask: false },
+    td: { live: false, host: '127.0.0.1', port: 7000 },
   };
 }
 
@@ -61,6 +62,7 @@ export function migrateProject(p) {
   const out = { ...base, ...p };
   out.blend = { ...base.blend, ...(p.blend || {}) };
   out.view = { ...base.view, ...(p.view || {}) };
+  out.td = { ...base.td, ...(p.td || {}) };
   out.projectors = (p.projectors || base.projectors).map((pj, i) => ({ ...base.projectors[i % 8], ...pj }));
   return out;
 }

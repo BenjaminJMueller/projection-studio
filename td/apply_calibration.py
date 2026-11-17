@@ -255,4 +255,5 @@ def run():
     log('%d Projektor(en) übernommen aus %s' % (n, path))
 
 
-run()
+if not globals().get('KALIB_NO_AUTORUN'):
+    run()

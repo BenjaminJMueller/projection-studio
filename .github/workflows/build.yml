@@ -1,0 +1,49 @@
+name: Test & Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: Unit-Tests (Solver, Export, TD-Skript, OSC)
+        run: npm test
+      - name: App-Smoke-Test (Electron, Klickpfad, Screenshots)
+        run: xvfb-run -a -s "-screen 0 1920x1080x24" npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: screenshots, path: test-output/ }
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm test
+      - name: Build
+        run: npm run dist
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Projektor-Kalibrator-${{ matrix.os == 'macos-latest' && 'macOS' || 'Windows' }}
+          path: |
+            dist/*.dmg
+            dist/*.exe
+          if-no-files-found: error

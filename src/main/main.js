@@ -4,6 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import dgram from 'node:dgram';
+import { oscMessage } from '../core/osc.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..', '..');
@@ -151,23 +152,6 @@ ipcMain.handle('shell:showItem', (_e, p) => shell.showItemInFolder(p));
 
 // ---------------- OSC (Live-Verbindung zu TouchDesigner)
 const oscSocket = dgram.createSocket('udp4');
-function oscString(s) {
-  const b = Buffer.from(s + '\0', 'utf8');
-  const pad = (4 - (b.length % 4)) % 4;
-  return Buffer.concat([b, Buffer.alloc(pad)]);
-}
-export function oscMessage(address, args) {
-  const parts = [oscString(address)];
-  let tags = ',';
-  const data = [];
-  for (const a of args) {
-    if (typeof a === 'string') { tags += 's'; data.push(oscString(a)); }
-    else if (Number.isInteger(a)) { tags += 'i'; const b = Buffer.alloc(4); b.writeInt32BE(a); data.push(b); }
-    else { tags += 'f'; const b = Buffer.alloc(4); b.writeFloatBE(a); data.push(b); }
-  }
-  parts.push(oscString(tags), ...data);
-  return Buffer.concat(parts);
-}
 ipcMain.handle('osc:send', (_e, { host, port, address, args }) => new Promise((resolve) => {
   const msg = oscMessage(address, args);
   oscSocket.send(msg, port, host || '127.0.0.1', (err) => resolve(err ? { ok: false, error: err.message } : { ok: true, bytes: msg.length }));

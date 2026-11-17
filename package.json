@@ -7,9 +7,12 @@
   "type": "module",
   "scripts": {
     "start": "electron .",
-    "test": "node --test test/*.test.js",
+    "test": "node scripts/check-syntax.mjs && node --test test/*.test.js",
     "dist:mac": "electron-builder --mac",
-    "dist:win": "electron-builder --win"
+    "dist:win": "electron-builder --win",
+    "lint": "node scripts/check-syntax.mjs",
+    "test:e2e": "node test/e2e/smoke.mjs test-output",
+    "dist": "electron-builder --publish never"
   },
   "author": "Benny",
   "license": "UNLICENSED",
@@ -19,6 +22,60 @@
   },
   "devDependencies": {
     "electron": "^33.2.1",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "playwright": "^1.56.1"
+  },
+  "build": {
+    "appId": "de.pixelcampus.projektor-kalibrator",
+    "productName": "Projektor-Kalibrator",
+    "files": [
+      "src/**/*",
+      "td/**/*",
+      "examples/**/*",
+      "node_modules/three/build/three.module.js",
+      "node_modules/three/examples/jsm/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "examples/**/*",
+      "td/**/*"
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "category": "public.app-category.graphics-design",
+      "identity": "-"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ]
+    }
   }
 }

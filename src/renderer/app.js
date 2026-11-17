@@ -107,7 +107,7 @@ worker.onmessage = (e) => {
   const p = S.project.projectors.find((x) => x.id === projectorId);
   if (!p) return;
   S.results[p.id] = { warnings: res.warnings || [], quality: res.quality, suggest: res.suggest, message: res.message };
-  if (res.ok) p.solution = res.solution;
+  if (res.ok) { p.solution = res.solution; sendLive(p); }
   else if (p.points.filter((x) => x.enabled && x.world && x.image).length < 4) p.solution = null;
   S.results[p.id].candidates = res.ok ? suggestModelCandidates(p, res.suggest) : [];
   markDirty();
@@ -262,6 +262,7 @@ function refresh(light = false) {
       renderOutputs();
       renderMaskTab();
       renderBlendTab();
+      renderTdSettings();
     }
     renderPointsTab();
     renderGuide();
@@ -473,6 +474,38 @@ function renderBlendTab() {
     row('Helligkeitsausgleich', el('input', { type: 'checkbox', checked: b.brightness, onchange: (e) => set('brightness', e.target.checked) })),
     row(`Stärke (${Math.round(b.brightnessStrength * 100)} %)`, el('input', { type: 'range', min: 0, max: 1, step: 0.05, value: b.brightnessStrength, onchange: (e) => set('brightnessStrength', Number(e.target.value)) }),
       '100 % = überall gleich hell (kostet Gesamthelligkeit), 0 % = aus'),
+  );
+}
+
+// ------------------------------------------------------------------ TouchDesigner live (OSC)
+const liveTimers = {};
+function sendLive(p, immediate = false) {
+  const td = S.project.td;
+  if (!td.live || !p.solution) return;
+  clearTimeout(liveTimers[p.id]);
+  liveTimers[p.id] = setTimeout(async () => {
+    const ex = exportProjector(p, { modelRadius: S.model?.radius });
+    const r = await api.oscSend(td.host, Number(td.port), '/kalibrator/projector', [JSON.stringify(ex)]);
+    S.liveStatus = r.ok ? `${p.id} gesendet ${new Date().toLocaleTimeString('de-DE')}` : `Fehler: ${r.error}`;
+    const st = document.getElementById('liveStatus');
+    if (st) st.textContent = S.liveStatus;
+  }, immediate ? 0 : 80);
+}
+function sendAllLive() {
+  for (const p of S.project.projectors) sendLive(p, true);
+}
+
+function renderTdSettings() {
+  const td = S.project.td;
+  $('#tdSettings').replaceChildren(
+    el('label', { class: 'check', title: 'Jede Änderung der Kalibrierung sofort per OSC an TouchDesigner senden' },
+      el('input', { type: 'checkbox', checked: td.live, onchange: (e) => { td.live = e.target.checked; markDirty(); if (td.live) sendAllLive(); refresh(); } }), 'Live an TouchDesigner senden'),
+    el('div', { class: 'row', style: 'margin-top:6px' }, el('label', {}, 'Host / Port'),
+      el('div', { style: 'display:grid;grid-template-columns:1fr 70px;gap:4px' },
+        input(td.host, (v) => { td.host = v; markDirty(); }),
+        input(td.port, (v) => { td.port = v; markDirty(); }, 'number'))),
+    el('div', { class: 'point-actions' }, el('button', { class: 'small', onclick: sendAllLive, disabled: !td.live }, 'Alle jetzt senden')),
+    el('div', { class: 'muted', id: 'liveStatus', style: 'font-size:11px' }, S.liveStatus || (td.live ? 'bereit' : 'aus')),
   );
 }
 
