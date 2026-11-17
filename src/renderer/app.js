@@ -10,6 +10,7 @@ import { computeBlendMasks } from './blend.js';
 import { makeBrowserStub } from './stub.js';
 import { icon, hydrateIcons } from './icons.js';
 import { fileUrl, targetTime, playState } from '../shared/playback.js';
+import { defaultWarp, resizeWarp, isIdentity, inverse, gridBase, touchDesignerShader } from '../shared/warp.js';
 
 const api = window.api || makeBrowserStub();
 const $ = (s) => document.querySelector(s);
@@ -44,6 +45,8 @@ const S = {
   blendStatus: '',
   play: { playing: false, startedAt: 0, pausedAt: 0, loop: true },
   videoInfo: null,
+  calTab: 'points', // 'points' | 'warp'
+  activeHandle: null,
 };
 const undoStack = [], redoStack = [];
 
@@ -51,7 +54,7 @@ const active = () => S.project.projectors.find((p) => p.id === S.activeId);
 const activePoint = () => active()?.points.find((x) => x.id === S.activePointId);
 
 function snapshot() {
-  return JSON.stringify(S.project.projectors.map((p) => ({ id: p.id, points: p.points, masks: p.masks, nextPointId: p.nextPointId, centerHint: p.centerHint || null })));
+  return JSON.stringify(S.project.projectors.map((p) => ({ id: p.id, points: p.points, masks: p.masks, nextPointId: p.nextPointId, centerHint: p.centerHint || null, warp: p.warp || null })));
 }
 function pushUndo() {
   undoStack.push({ snap: snapshot(), activeId: S.activeId, activePointId: S.activePointId });
@@ -136,6 +139,7 @@ const preview = new Preview($('#preview3d'), $('#preview2d'), {
   },
   onSelectPoint: (id) => selectPoint(id),
   onMaskPointer: (uv, phase, e) => onMaskPointer(uv, phase, e),
+  onWarpPointer: (uv, phase) => onWarpPointer(uv, phase),
 });
 
 function setImage(pt, u, v, solveDelay = 0) {
@@ -280,6 +284,7 @@ function showSuggest() {
   return S.mode === 'calibrate' && (enabledPoints(p) < 6 || !isGood(S.results[p.id]?.quality));
 }
 function previewMode() {
+  if (warpEditing()) return 'warp';
   if (S.mode === 'blend') return S.activeMaskId ? 'masks' : 'blend';
   if (S.mode === 'output') return Object.keys(S.blendImages).length ? 'blend' : 'points';
   return 'points';
@@ -307,7 +312,7 @@ function refresh(light = false) {
     renderDocState();
     view.update(S.project, S.activeId, S.activePointId, S.pendingRepick, showSuggest() ? S.results[S.activeId]?.candidates : null);
     preview.mode = previewMode();
-    preview.set(active(), S.activePointId, { suggest: showSuggest() ? S.results[S.activeId]?.suggest : null, activeMaskId: S.activeMaskId, blendImg: blendImgFor(S.activeId) });
+    preview.set(active(), S.activePointId, { activeHandle: S.activeHandle, suggest: showSuggest() ? S.results[S.activeId]?.suggest : null, activeMaskId: S.activeMaskId, blendImg: blendImgFor(S.activeId) });
     $('#previewCaption').replaceChildren(el('span', {}, el('b', {}, displayName(active())), outputLabel(active())), el('span', {}, `${active().resolution[0]} × ${active().resolution[1]}`));
     $('#btnUndo').disabled = !undoStack.length;
     $('#btnRedo').disabled = !redoStack.length;
@@ -555,7 +560,10 @@ function renderCalibrate() {
       el('span', { class: 'err' }, e != null && pt.enabled ? [e >= 3 ? el('i', { class: errClass(e) }) : null, `${nf(e)} px`] : ''),
       el('input', { type: 'checkbox', 'aria-label': 'Punkt verwenden', 'data-tip': 'Punkt verwenden', checked: pt.enabled, onclick: (ev) => ev.stopPropagation(), onchange: (ev) => { pushUndo(); pt.enabled = ev.target.checked; scheduleSolve(p); markDirty(); refresh(); } }));
   });
-  put('#paneCalibrate', 
+  const tabs = el('div', { class: 'seg fill', role: 'tablist', style: 'margin:4px 0 8px' },
+    ...[['points', 'Punkte'], ['warp', 'Feinkorrektur']].map(([k, l]) => el('button', { class: S.calTab === k ? 'on' : '', role: 'tab', 'data-cal': k, onclick: () => { S.calTab = k; if (k === 'warp') { p.warp ||= defaultWarp(5, 5); } refresh(); } }, l)));
+  if (S.calTab === 'warp') return put('#paneCalibrate', tabs, warpPane(p));
+  put('#paneCalibrate', tabs,
     statusCard(p),
     gtitle('Punkte',
       iconBtn('target', 'Gewählten Punkt im Modell neu setzen', () => { S.pendingRepick = !S.pendingRepick; refresh(); }, { disabled: !activePoint(), on: S.pendingRepick, id: 'btnRepick' }),
@@ -580,6 +588,58 @@ function renderCalibrate() {
   );
 }
 
+// ---------- Feinkorrektur (Verzerrungsgitter)
+const warpEditing = () => S.mode === 'calibrate' && S.calTab === 'warp';
+
+function onWarpPointer(uv, phase) {
+  const p = active();
+  p.warp ||= defaultWarp(5, 5);
+  const w = p.warp;
+  const [W, H] = p.resolution;
+  const nu = uv[0] / W, nv = uv[1] / H;
+  if (phase === 'down') {
+    let best = null, bd = 0.04;
+    w.offsets.forEach((o, i) => {
+      const [bu, bv] = gridBase(w, i);
+      const d = Math.hypot((bu + o[0] - nu) * W / H, bv + o[1] - nv);
+      if (d < bd) { bd = d; best = i; }
+    });
+    S.activeHandle = best;
+    S.warpDrag = best != null ? (() => { const [bu, bv] = gridBase(w, best); const o = w.offsets[best]; return { grab: [bu + o[0] - nu, bv + o[1] - nv] }; })() : null;
+    if (best != null) pushUndo();
+    return refresh(true);
+  }
+  if (S.warpDrag && S.activeHandle != null && (phase === 'move' || phase === 'up')) {
+    const [bu, bv] = gridBase(w, S.activeHandle);
+    w.offsets[S.activeHandle] = [nu + S.warpDrag.grab[0] - bu, nv + S.warpDrag.grab[1] - bv];
+    if (phase === 'up') { S.warpDrag = null; markDirty(); }
+    refresh(true);
+  }
+}
+
+function warpPane(p) {
+  const w = p.warp;
+  const n = w ? `${w.cols} × ${w.rows}` : '5 × 5';
+  const o = w && S.activeHandle != null ? w.offsets[S.activeHandle] : null;
+  const changed = w ? w.offsets.filter(([a, b]) => Math.hypot(a, b) > 1e-6).length : 0;
+  return [
+    el('div', { class: `status ${changed ? 'ok' : ''}` },
+      el('div', { class: 'head' }, el('div', { class: 'ic-wrap', html: icon('target', 16) }),
+        el('div', {}, el('b', {}, changed ? `${changed} ${changed === 1 ? 'Punkt' : 'Punkte'} korrigiert` : 'Keine Feinkorrektur'),
+          el('span', {}, 'Punkte im Projektorbild oben oder direkt auf dem Projektor ziehen. Pfeiltasten: 1 Pixel, mit ⇧ 10 Pixel.')))),
+    gtitle('Gitter'),
+    group(
+      r('Punkte', select([['3', '3 × 3'], ['5', '5 × 5'], ['7', '7 × 7'], ['9', '9 × 9']], String(w?.cols || 5), (v) => { pushUndo(); p.warp = resizeWarp(p.warp, Number(v), Number(v)); S.activeHandle = null; markDirty(); refresh(); }),
+        { tip: 'Mehr Punkte erlauben feinere, örtlich begrenzte Korrekturen. Beim Wechsel bleibt die Form erhalten.' }),
+      r('Gewählter Punkt', el('span', { class: 'muted' }, o ? `${nf(o[0] * p.resolution[0], 1)} / ${nf(o[1] * p.resolution[1], 1)} px` : 'keiner')),
+      r('Testbild', el('button', { class: 'btn', onclick: () => { S.project.view.outputMode = 'grid'; markDirty(); if (!S.openOutputs.size) toggleOutputs(true); refresh(); } }, 'Raster auf Projektoren')),
+    ),
+    el('div', { class: 'act' },
+      el('button', { class: 'link danger', disabled: !o, onclick: () => { pushUndo(); p.warp.offsets[S.activeHandle] = [0, 0]; markDirty(); refresh(); } }, 'Punkt zurücksetzen'),
+      el('button', { class: 'link danger', disabled: !changed, onclick: () => { pushUndo(); p.warp = defaultWarp(w.cols, w.rows); markDirty(); refresh(); toast('Feinkorrektur zurückgesetzt. Mit Strg/Cmd+Z rückgängig.'); } }, 'Alles zurücksetzen')),
+  ];
+}
+
 function coach(num, title, text, ok = false) {
   $('#guide').replaceChildren(el('span', { class: `num ${ok ? 'ok' : ''}` }, num), el('span', { class: 't' }, el('b', {}, title), text ? el('span', {}, text) : null));
 }
@@ -596,7 +656,7 @@ function renderGuide() {
     if (!Object.keys(S.blendImages).length) return coach('3', 'Masken berechnen', 'Rechts auf „Masken berechnen“ klicken, sobald die Projektoren kalibriert sind.');
     return g.replaceChildren();
   }
-  if (S.mode !== 'calibrate') return g.replaceChildren();
+  if (S.mode !== 'calibrate' || warpEditing()) return g.replaceChildren();
   if (S.pickCenter) return coach(ic('focus', 16), 'Bildmitte wählen', `Ungefähr dorthin klicken, wo die Mitte des Bildes von ${name} liegt.`);
   if (S.pendingRepick) return coach(String(S.activePointId), `Punkt ${S.activePointId} neu setzen`, 'Die richtige Stelle im Modell anklicken.');
   if (n === 0 && !activePoint()) return coach('1', 'Markante Ecke im Modell anklicken', `Am besten weit außen im Bild von ${name} beginnen.`);
@@ -791,6 +851,9 @@ function broadcast() {
       activeId: S.activeId,
       activePointId: S.activePointId,
       play: S.play,
+      warpEdit: warpEditing(),
+      markers: S.mode === 'calibrate',
+      activeHandle: S.activeHandle,
       modelPath: S.project.model.path,
     });
   });
@@ -834,6 +897,12 @@ api.onOutputEvent((msg) => {
       return;
     }
     const p = active();
+    if (warpEditing()) return onWarpPointer([msg.u, msg.v], msg.phase === 'down' ? 'down' : msg.phase === 'up' ? 'up' : 'move');
+    // Klickposition auf dem Projektor -> Bildkoordinate vor der Feinkorrektur
+    if (!isIdentity(p.warp)) {
+      const [su, sv] = inverse(p.warp, msg.u / p.resolution[0], msg.v / p.resolution[1]);
+      msg = { ...msg, u: su * p.resolution[0], v: sv * p.resolution[1] };
+    }
     let pt = activePoint();
     if (msg.phase === 'down') {
       // nahen Punkt wählen, sonst aktiven Punkt hierher setzen
@@ -854,6 +923,17 @@ function handleKey(e) {
   const pt = activePoint();
   const step = e.shiftKey ? 10 : e.altKey ? 0.25 : 1;
   const mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+  if (warpEditing() && p.warp) {
+    const n = p.warp.offsets.length;
+    if (mv && S.activeHandle != null) {
+      if (!e.repeat) pushUndo();
+      const o = p.warp.offsets[S.activeHandle];
+      o[0] += mv[0] / p.resolution[0]; o[1] += mv[1] / p.resolution[1];
+      markDirty(); refresh(true);
+      return true;
+    }
+    if (e.key === 'Tab') { S.activeHandle = ((S.activeHandle ?? -1) + (e.shiftKey ? -1 : 1) + n) % n; refresh(true); return true; }
+  }
   if (mv && pt?.image) {
     if (!e.repeat) pushUndo();
     setImage(pt, pt.image[0] + mv[0], pt.image[1] + mv[1], e.repeat ? 60 : 0);
@@ -1013,6 +1093,11 @@ async function exportTD() {
       ex.maskFile = `masken/${p.id}.png`;
       const blob = await new Promise((r) => b.canvas.toBlob(r, 'image/png'));
       await api.writeFile(`${base}/${ex.maskFile}`, new Uint8Array(await blob.arrayBuffer()));
+    }
+    if (!isIdentity(p.warp)) {
+      ex.warp = p.warp;
+      ex.warpShader = `feinkorrektur/${p.id}.frag`;
+      await api.writeFile(`${base}/${ex.warpShader}`, touchDesignerShader(p.warp));
     }
     projectors.push(ex);
   }

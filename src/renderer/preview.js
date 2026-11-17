@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { applySolutionToCamera } from '../shared/scene.js';
 import { drawMaskShapes } from '../shared/masks.js';
+import { forward, gridBase } from '../shared/warp.js';
 
 export class Preview {
   constructor(canvas3d, canvas2d, handlers) {
@@ -94,6 +95,25 @@ export class Preview {
       drawMaskShapes(g, p.masks, { outline: true, activeMask: this.extras.activeMaskId, px, editing: this.mode === 'masks' });
       g.restore();
     }
+    // Feinkorrektur-Gitter
+    if (this.mode === 'warp' && p.warp) {
+      const w = p.warp, N = 16;
+      g.lineWidth = 1.2 * px;
+      g.strokeStyle = 'rgba(255,255,255,.7)';
+      const line = (fn, n) => { g.beginPath(); for (let k = 0; k <= n; k++) { const [u, v] = fn(k / n); k ? g.lineTo(u * this.W, v * this.H) : g.moveTo(u * this.W, v * this.H); } g.stroke(); };
+      for (let r = 0; r < w.rows; r++) line((t) => forward(w, t, r / (w.rows - 1)), N * (w.cols - 1));
+      for (let c = 0; c < w.cols; c++) line((t) => forward(w, c / (w.cols - 1), t), N * (w.rows - 1));
+      w.offsets.forEach((o, i) => {
+        const [bu, bv] = gridBase(w, i);
+        const x = (bu + o[0]) * this.W, y = (bv + o[1]) * this.H, on = i === this.extras.activeHandle;
+        g.beginPath(); g.arc(x, y, (on ? 7 : 5) * px, 0, Math.PI * 2);
+        g.fillStyle = on ? '#0a84ff' : 'rgba(30,30,34,.9)'; g.fill();
+        g.lineWidth = 1.5 * px; g.strokeStyle = '#fff'; g.stroke();
+      });
+      g.strokeStyle = p.color; g.lineWidth = 2 * px;
+      g.strokeRect(0, 0, this.W, this.H);
+      return;
+    }
     // Vorschlag für nächsten Punkt
     if (this.extras.suggest && this.mode === 'points') {
       const s = this.extras.suggest;
@@ -163,6 +183,11 @@ export class Preview {
       if (!this.p || e.button !== 0) return;
       const uv = this.toPx(e);
       this.c2.setPointerCapture(e.pointerId);
+      if (this.mode === 'warp') {
+        drag = { kind: 'warp' };
+        this.h.onWarpPointer?.(uv, 'down');
+        return;
+      }
       if (this.mode === 'masks') {
         drag = { kind: 'mask' };
         this.h.onMaskPointer?.(uv, 'down', e);
@@ -183,12 +208,14 @@ export class Preview {
       if (!drag) return;
       const uv = this.toPx(e);
       if (drag.kind === 'mask') return this.h.onMaskPointer?.(uv, 'move', e);
+      if (drag.kind === 'warp') return this.h.onWarpPointer?.(uv, 'move');
       this.h.onImagePoint(uv[0] + drag.offset[0], uv[1] + drag.offset[1], 'move');
     });
     const up = (e) => {
       if (!drag) return;
       const uv = this.toPx(e);
-      if (drag.kind === 'mask') this.h.onMaskPointer?.(uv, 'up', e);
+      if (drag.kind === 'warp') this.h.onWarpPointer?.(uv, 'up');
+      else if (drag.kind === 'mask') this.h.onMaskPointer?.(uv, 'up', e);
       else this.h.onImagePoint(uv[0] + drag.offset[0], uv[1] + drag.offset[1], 'end');
       drag = null;
     };

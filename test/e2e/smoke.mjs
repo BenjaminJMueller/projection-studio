@@ -157,6 +157,27 @@ await win.screenshot({ path: path.join(outDir, '08b-wiedergabe.png') });
 await win.evaluate(() => window.__app.setPlay('pause'));
 console.log('Video läuft:', { t1: +t1.toFixed(2), t2: +t2.toFixed(2) });
 if (!(t2 > t1 + 0.5 || t2 < t1)) errors.push('error: Video läuft im Ausgabefenster nicht');
+// Feinkorrektur: Gitter verbiegen, Ausgabe muss sich ändern
+await win.evaluate(() => { window.__app.S.project.view.outputMode = 'grid'; window.__app.refresh(); });
+await outWin.waitForTimeout(800);
+const before = await outWin.screenshot();
+await win.click('#modes button[data-mode=calibrate]');
+await win.click('[data-cal=warp]');
+await win.evaluate(() => {
+  const { S, refresh } = window.__app;
+  const w = S.project.projectors[0].warp;
+  w.offsets[12] = [0.04, -0.05]; // Mitte
+  w.offsets[6] = [-0.02, 0.02];
+  S.activeHandle = 12;
+  refresh();
+});
+await win.waitForTimeout(800);
+await win.screenshot({ path: path.join(outDir, '09-feinkorrektur.png') });
+await outWin.screenshot({ path: path.join(outDir, '09b-ausgang-A-feinkorrektur.png') });
+await win.click('#modes button[data-mode=output]');
+await outWin.waitForTimeout(800);
+const after = await outWin.screenshot({ path: path.join(outDir, '09c-ausgang-A-verzerrt.png') });
+if (Buffer.compare(before, after) === 0) errors.push('error: Feinkorrektur wirkt nicht auf die Ausgabe');
 await win.evaluate(() => window.__app.toggleOutputs(false));
 
 const sol = await win.evaluate(() => window.__app.S.project.projectors.slice(0, 4).map((p) => ({ id: p.id, rms: p.solution.rms, center: p.solution.center, quality: window.__app.S.results[p.id]?.quality })));

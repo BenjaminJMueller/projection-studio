@@ -5,6 +5,10 @@ import { buildModel, applySolutionToCamera, makeUvGridTexture } from '../shared/
 import { quadrantRect } from '../shared/project.js';
 import { renderMaskCanvas } from '../shared/masks.js';
 import { fileUrl, targetTime, syncCorrection } from '../shared/playback.js';
+import { WARP_GLSL, warpUniformArray, isIdentity, forward, gridBase } from '../shared/warp.js';
+
+// Rohe Farbwerte durchreichen: Video, Masken und Testbilder werden 1:1 ausgegeben.
+THREE.ColorManagement.enabled = false;
 
 const api = window.api;
 const params = new URLSearchParams(location.search);
@@ -15,10 +19,79 @@ const maskCanvas = document.getElementById('mask');
 const ovCanvas = document.getElementById('overlay');
 const renderer = new THREE.WebGLRenderer({ canvas: glCanvas, antialias: true });
 renderer.autoClear = false;
+renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+maskCanvas.style.display = 'none';
 const ov = ovCanvas.getContext('2d');
-const mk = maskCanvas.getContext('2d');
 
-const st = { project: null, activeId: null, activePointId: null, modelPath: null, model: null, blend: {}, blendImgs: {}, mouse: null, play: null };
+const st = { project: null, activeId: null, activePointId: null, modelPath: null, model: null, blend: {}, blendImgs: {}, mouse: null, play: null, warpEdit: false, markers: true, activeHandle: null };
+
+// ---------------- GPU-Zusammensetzung pro Projektor: 3D-Bild -> Feinkorrektur -> Maske
+const rts = new Map(); // projectorId -> WebGLRenderTarget
+const maskTex = new Map(); // projectorId -> { canvas, tex, key }
+const compCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const compMat = new THREE.ShaderMaterial({
+  glslVersion: THREE.GLSL3,
+  uniforms: {
+    tScene: { value: null }, tMask: { value: null }, uMaskOn: { value: 0 },
+    uWarp: { value: warpUniformArray(null) }, uWarpCols: { value: 2 }, uWarpRows: { value: 2 }, uWarpOn: { value: 0 },
+  },
+  vertexShader: 'out vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+  fragmentShader: `precision highp float;
+in vec2 vUv;
+out vec4 outColor;
+uniform sampler2D tScene;
+uniform sampler2D tMask;
+uniform int uMaskOn;
+${WARP_GLSL}
+void main() {
+  vec2 q = vec2(vUv.x, 1.0 - vUv.y);
+  vec2 p = warpSource(q);
+  if (any(lessThan(p, vec2(0.0))) || any(greaterThan(p, vec2(1.0)))) { outColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+  vec2 s = vec2(p.x, 1.0 - p.y);
+  vec4 c = texture(tScene, s);
+  if (uMaskOn == 1) c.rgb *= texture(tMask, s).r;
+  outColor = vec4(c.rgb, 1.0);
+}`,
+  depthTest: false, depthWrite: false,
+});
+const compScene = new THREE.Scene();
+compScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), compMat));
+
+function rtFor(id, w, h) {
+  let rt = rts.get(id);
+  w = Math.max(1, Math.round(w)); h = Math.max(1, Math.round(h));
+  if (!rt) { rt = new THREE.WebGLRenderTarget(w, h, { samples: 4 }); rts.set(id, rt); }
+  else if (rt.width !== w || rt.height !== h) rt.setSize(w, h);
+  return rt;
+}
+
+/** Maske eines Projektors (Überblendung × eigene Masken) als Textur, nur bei Änderung neu. */
+function maskFor(p) {
+  const img = st.blendImgs[p.id];
+  const key = `${img?.src?.length || 0}|${img?.complete}|${JSON.stringify(p.masks || [])}`;
+  let m = maskTex.get(p.id);
+  if (m && m.key === key) return m.tex;
+  if (!m) {
+    const canvas = document.createElement('canvas');
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.NoColorSpace;
+    m = { canvas, tex, key: '' };
+    maskTex.set(p.id, m);
+  }
+  const W = Math.round(p.resolution[0] / 2), H = Math.round(p.resolution[1] / 2);
+  m.canvas.width = W; m.canvas.height = H;
+  const g = m.canvas.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+  if (img?.complete) g.drawImage(img, 0, 0, W, H);
+  if (p.masks?.length) {
+    g.globalCompositeOperation = 'multiply';
+    g.drawImage(renderMaskCanvas(p.masks, p.resolution[0], p.resolution[1], 0.25), 0, 0, W, H);
+    g.globalCompositeOperation = 'source-over';
+  }
+  m.key = key;
+  m.tex.needsUpdate = true;
+  return m.tex;
+}
 const scene = new THREE.Scene();
 const cam = new THREE.PerspectiveCamera();
 let mesh, lines, gridTex, planarGeom;
@@ -36,7 +109,7 @@ video.playsInline = true;
 video.preload = 'auto';
 video.crossOrigin = 'anonymous';
 const videoTex = new THREE.VideoTexture(video);
-videoTex.colorSpace = THREE.SRGBColorSpace;
+videoTex.colorSpace = THREE.NoColorSpace;
 mats.video.map = videoTex;
 let videoSrc = '';
 
@@ -137,9 +210,6 @@ function drawNow(full = true) {
   if (full) {
     ov.setTransform(1, 0, 0, 1, 0, 0);
     ov.clearRect(0, 0, ovCanvas.width, ovCanvas.height);
-    mk.setTransform(1, 0, 0, 1, 0, 0);
-    mk.fillStyle = '#fff';
-    mk.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
   }
   if (!st.project) return;
   const mode = st.project.view.outputMode;
@@ -151,30 +221,32 @@ function drawNow(full = true) {
     // 3D-Inhalt durch die kalibrierte Kamera
     if (p.solution && st.model && mode !== 'black' && mode !== 'ident') {
       applySolutionToCamera(cam, p.solution, st.model.radius / 200, st.model.radius * 20);
+      const rt = rtFor(p.id, w, h);
       mesh.geometry = mode === 'video' && st.project.playback?.mapping !== 'uv' ? planarGeometry() : st.model.geometry;
       mesh.material = mode === 'video' ? mats.video : mode === 'white' ? mats.white : mode === 'grid' ? (mats.grid ||= new THREE.MeshBasicMaterial({ map: (gridTex ||= makeUvGridTexture()), side: THREE.DoubleSide })) : mats.black;
       lines.visible = mode === 'edges';
       lineMat.color.set(active ? '#ffffff' : '#bbbbbb');
-      // GL-Viewport: Ursprung unten links, in CSS-Pixeln
+      // 1) 3D-Bild in eigenes Bild rendern
+      renderer.setRenderTarget(rt);
+      renderer.setClearColor(0x000000, 1);
+      renderer.clear();
+      renderer.render(scene, cam);
+      renderer.setRenderTarget(null);
+      // 2) Feinkorrektur und Maske auf der GPU, in den Quadranten (GL: Ursprung unten links, CSS-Pixel)
+      const u = compMat.uniforms;
+      u.tScene.value = rt.texture;
+      u.uMaskOn.value = showMask ? 1 : 0;
+      if (showMask) u.tMask.value = maskFor(p);
+      const wp = p.warp;
+      u.uWarpOn.value = isIdentity(wp) ? 0 : 1;
+      if (wp) { u.uWarp.value = warpUniformArray(wp); u.uWarpCols.value = wp.cols; u.uWarpRows.value = wp.rows; }
       renderer.setViewport(x / dpr, (Hc - y - h) / dpr, w / dpr, h / dpr);
       renderer.setScissor(x / dpr, (Hc - y - h) / dpr, w / dpr, h / dpr);
       renderer.setScissorTest(true);
-      renderer.render(scene, cam);
+      renderer.render(compScene, compCam);
       renderer.setScissorTest(false);
     }
     if (!full) continue;
-    // Masken (Multiply-Ebene)
-    if (showMask) {
-      const img = st.blendImgs[p.id];
-      if (img?.complete) mk.drawImage(img, x, y, w, h);
-      else if (p.solution) { mk.fillStyle = '#fff'; mk.fillRect(x, y, w, h); }
-      if (p.masks?.length) {
-        const mc = renderMaskCanvas(p.masks, p.resolution[0], p.resolution[1], 0.25);
-        mk.globalCompositeOperation = 'multiply';
-        mk.drawImage(mc, x, y, w, h);
-        mk.globalCompositeOperation = 'source-over';
-      }
-    }
     // Overlay: Rahmen, Kennung, Punkte (nicht während der Videowiedergabe)
     if (mode === 'video') continue;
     const sx = w / p.resolution[0], sy = h / p.resolution[1];
@@ -196,10 +268,13 @@ function drawNow(full = true) {
       ov.fillText(`${outputId} · ${p.ring}`, w / 2, h * 0.7);
       ov.textAlign = 'left'; ov.textBaseline = 'alphabetic';
     }
-    if (active) {
+    if (active && st.warpEdit && p.warp) {
+      drawWarpGrid(p.warp, w, h, dpr);
+    } else if (active && st.markers) {
       for (const pt of p.points) {
         if (!pt.image) continue;
-        const u = pt.image[0] * sx, v = pt.image[1] * sy;
+        const [fu, fv] = forward(p.warp, pt.image[0] / p.resolution[0], pt.image[1] / p.resolution[1]);
+        const u = fu * w, v = fv * h;
         const isA = pt.id === st.activePointId;
         if (isA) {
           // großes Fadenkreuz über das ganze Bild
@@ -229,6 +304,37 @@ function drawNow(full = true) {
     const r = 30 * dpr;
     ov.beginPath(); ov.moveTo(cx - r, cy); ov.lineTo(cx + r, cy); ov.moveTo(cx, cy - r); ov.lineTo(cx, cy + r); ov.stroke();
   }
+}
+
+/** Feinkorrektur-Gitter: verzerrte Linien und Anfasser, aktiver Anfasser blau. */
+function drawWarpGrid(wp, w, h, dpr) {
+  const N = 24;
+  ov.lineWidth = 1.5 * dpr;
+  ov.strokeStyle = 'rgba(255,255,255,0.75)';
+  for (let r = 0; r < wp.rows; r++) {
+    ov.beginPath();
+    for (let k = 0; k <= N * (wp.cols - 1); k++) {
+      const [u, v] = forward(wp, k / (N * (wp.cols - 1)), r / (wp.rows - 1));
+      k ? ov.lineTo(u * w, v * h) : ov.moveTo(u * w, v * h);
+    }
+    ov.stroke();
+  }
+  for (let c = 0; c < wp.cols; c++) {
+    ov.beginPath();
+    for (let k = 0; k <= N * (wp.rows - 1); k++) {
+      const [u, v] = forward(wp, c / (wp.cols - 1), k / (N * (wp.rows - 1)));
+      k ? ov.lineTo(u * w, v * h) : ov.moveTo(u * w, v * h);
+    }
+    ov.stroke();
+  }
+  wp.offsets.forEach((o, i) => {
+    const [bu, bv] = gridBase(wp, i);
+    const x = (bu + o[0]) * w, y = (bv + o[1]) * h;
+    const on = i === st.activeHandle;
+    ov.beginPath(); ov.arc(x, y, (on ? 11 : 8) * dpr, 0, Math.PI * 2);
+    ov.fillStyle = on ? '#0a84ff' : 'rgba(0,0,0,0.6)'; ov.fill();
+    ov.lineWidth = 2.5 * dpr; ov.strokeStyle = '#fff'; ov.stroke();
+  });
 }
 
 // ---------------- Eingaben auf dem Projektor
@@ -277,6 +383,9 @@ api.onStateUpdate(async (msg) => {
     st.activeId = msg.activeId;
     st.activePointId = msg.activePointId;
     st.play = msg.play || null;
+    st.warpEdit = !!msg.warpEdit;
+    st.markers = msg.markers ?? true;
+    st.activeHandle = msg.activeHandle ?? null;
     await ensureModel(msg.modelPath);
     ensureVideo(st.project.view.outputMode === 'video' ? st.project.playback?.src : '');
     syncVideo();

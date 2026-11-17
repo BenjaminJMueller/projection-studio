@@ -19,6 +19,7 @@ export function defaultProjectors() {
     tdRender: i === 0 ? 'Projektion' : `Projektion_P${i + 1}`,
     points: [],
     nextPointId: 1,
+    warp: null, // Feinkorrektur-Gitter (siehe shared/warp.js), null = keine
     solution: null,
     masks: [],
     enabled: true,
