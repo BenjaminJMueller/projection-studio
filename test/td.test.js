@@ -14,7 +14,7 @@ for (const mirror of [false, true]) {
       const pj = exportProjector({ id: 'P1', name: 'P1', tdCamera: 'Kamera_P1', solution: sol });
       const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'td-')), 'pj.json');
       fs.writeFileSync(f, JSON.stringify(pj));
-      const out = JSON.parse(execFileSync('python3', ['test/td_mock.py', f, String(sx), String(sy), String(sc)]).toString());
+      const out = JSON.parse(execFileSync('python3', ['test/td_mock.py', f, String(sx), String(sy), String(sc)], { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } }).toString());
       assert.ok(out.perr < 1e-6, `Projektion weicht ab: ${out.perr}`);
       assert.ok(out.terr < 1e-6, `Transform weicht ab: ${out.terr}`);
     });
@@ -22,7 +22,7 @@ for (const mirror of [false, true]) {
 }
 
 test('TD-Skript fügt Maske und Feinkorrektur in die Kette ein (auch bei zweitem Lauf nur einmal)', () => {
-  const out = JSON.parse(execFileSync('python3', ['test/td_net_mock.py'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString());
+  const out = JSON.parse(execFileSync('python3', ['test/td_net_mock.py'], { stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, PYTHONIOENCODING: 'utf-8' } }).toString());
   assert.deepEqual(out.chain, ['Out', 'Fein_P1', 'Blend_P1', 'Projektion_P1']);
   assert.deepEqual(out.ops, ['Blend_P1', 'Fein_P1', 'Fein_P1_frag', 'Maske_P1', 'Out', 'Projektion_P1']);
   assert.equal(out.pixeldat, 'Fein_P1_frag');

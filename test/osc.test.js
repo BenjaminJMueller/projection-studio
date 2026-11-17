@@ -20,7 +20,7 @@ for t in tags[1:]:
     elif t == 'i': out.append(struct.unpack('>i', b[i:i+4])[0]); i += 4
     elif t == 'f': out.append(struct.unpack('>f', b[i:i+4])[0]); i += 4
 print(repr(out))`;
-  const res = execFileSync('python3', ['-c', py], { input: buf }).toString().trim();
+  const res = execFileSync('python3', ['-c', py], { input: buf, env: { ...process.env, PYTHONIOENCODING: 'utf-8' } }).toString().trim();
   assert.ok(res.includes("'/kalibrator/projector', ',sif'"), res);
   assert.ok(res.includes('ü'), res);
   assert.ok(res.endsWith('7, 0.5]'), res);
