@@ -6,7 +6,7 @@ Projection Studio ist ein Werkzeug für 3D-Projection-Mapping auf macOS und Wind
 
 ## Hintergrund
 
-Projection Studio ist im Rahmen der Lehre entstanden. Anlass war eine Installation auf einer Gewölbedecke, an der Studierende Inhalte in TouchDesigner entwickeln:
+Projection Studio ist im Rahmen der Lehre entstanden. Anlass war eine Installation auf einer Gewölbedecke, die mit TouchDesigner bespielt wird:
 
 - 8 × Epson EB-535W (Kurzdistanz), Projektion über Bodenspiegel, Bild im Projektor gespiegelt
 - großer vertikaler Lens Offset, 4 Projektoren im Innenring um eine Mittelsäule, 4 im Außenring
