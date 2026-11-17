@@ -136,7 +136,7 @@ Grenzen: Der erste Projektor wird von Hand kalibriert, die Kamera braucht einen 
 
 Ältere Stände liegen unter [Releases](https://github.com/BenjaminJMueller/projection-studio/releases). Die Versionsnummer steht im Menü *Hilfe*.
 
-Die Mac-App ist nicht bei Apple signiert. Beim ersten Start deshalb im Finder per Rechtsklick auf *Öffnen* gehen oder im Terminal einmal das hier ausführen:
+Die Mac-App ist nicht bei Apple beglaubigt, macOS blockiert sie deshalb beim ersten Start. Ab macOS 15 die App einmal öffnen, die Meldung schließen und dann unter *Systemeinstellungen → Datenschutz & Sicherheit* ganz unten *Dennoch öffnen* klicken. Bis macOS 14 genügt Rechtsklick auf die App → *Öffnen*. Dieselbe Anleitung liegt als Bild und als *Bitte lesen* im DMG. Alternativ im Terminal einmal das hier ausführen:
 
 ```sh
 xattr -dr com.apple.quarantine "/Applications/Projection Studio.app"

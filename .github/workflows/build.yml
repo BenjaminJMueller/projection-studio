@@ -89,6 +89,6 @@ jobs:
           cat out/latest.json
           NOTES="Version ${VERSION} – ${SUBJECT}
 
-          **macOS**: Projection-Studio-mac.dmg öffnen, App in Programme ziehen, beim ersten Start Rechtsklick → Öffnen. Danach aktualisiert sich die App selbst.
+          **macOS**: Projection-Studio-mac.dmg öffnen, App in Programme ziehen. Beim ersten Start blockiert macOS die nicht beglaubigte App: Systemeinstellungen → Datenschutz & Sicherheit → Dennoch öffnen (bis macOS 14: Rechtsklick → Öffnen). Anleitung liegt im DMG.
           **Windows**: Projection-Studio-Setup.exe installieren oder Projection-Studio-Portable.exe ohne Installation starten."
           gh release create "$TAG" out/*.dmg out/*.zip out/*.exe out/latest.json --target "$GITHUB_SHA" --title "$TITLE" --notes "$NOTES" --latest

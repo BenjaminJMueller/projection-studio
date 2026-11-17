@@ -65,6 +65,15 @@
       },
       "artifactName": "Projection-Studio-mac.${ext}"
     },
+    "dmg": {
+      "window": { "width": 640, "height": 520 },
+      "iconSize": 80,
+      "contents": [
+        { "x": 160, "y": 120 },
+        { "x": 480, "y": 120, "type": "link", "path": "/Applications" },
+        { "x": 320, "y": 462, "type": "file", "path": "build/readme-dmg.txt", "name": "Bitte lesen – Read me.txt" }
+      ]
+    },
     "win": {
       "target": [
         {
