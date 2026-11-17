@@ -141,6 +141,22 @@ await outWin.screenshot({ path: path.join(outDir, '06-ausgang-A.png') });
 await win.evaluate(() => { window.__app.S.project.view.outputMode = 'grid'; window.__app.refresh(); });
 await outWin.waitForTimeout(1500);
 await outWin.screenshot({ path: path.join(outDir, '07-ausgang-A-raster.png') });
+
+// Videowiedergabe: Testvideo auf dem Modell, Zeit muss laufen
+await win.evaluate((f) => { window.__app.setVideo(f); }, path.join(root, 'test/fixtures/testvideo.mp4'));
+await win.waitForFunction(() => window.__app.S.videoInfo?.duration > 0, null, { timeout: 15000 });
+await win.evaluate(() => window.__app.setPlay('play'));
+await outWin.waitForFunction(() => window.__out.video.currentTime > 0.5, null, { timeout: 15000 });
+const t1 = await outWin.evaluate(() => window.__out.video.currentTime);
+await outWin.waitForTimeout(1000);
+const t2 = await outWin.evaluate(() => window.__out.video.currentTime);
+await outWin.screenshot({ path: path.join(outDir, '08-ausgang-A-video.png') });
+await win.click('#modes button[data-mode=output]');
+await win.waitForTimeout(300);
+await win.screenshot({ path: path.join(outDir, '08b-wiedergabe.png') });
+await win.evaluate(() => window.__app.setPlay('pause'));
+console.log('Video läuft:', { t1: +t1.toFixed(2), t2: +t2.toFixed(2) });
+if (!(t2 > t1 + 0.5 || t2 < t1)) errors.push('error: Video läuft im Ausgabefenster nicht');
 await win.evaluate(() => window.__app.toggleOutputs(false));
 
 const sol = await win.evaluate(() => window.__app.S.project.projectors.slice(0, 4).map((p) => ({ id: p.id, rms: p.solution.rms, center: p.solution.center, quality: window.__app.S.results[p.id]?.quality })));

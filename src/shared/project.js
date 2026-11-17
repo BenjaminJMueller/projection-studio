@@ -49,6 +49,7 @@ export function newProject() {
     },
     view: { outputMode: 'edges', showPoints: true, showMask: false },
     td: { live: false, host: '127.0.0.1', port: 7000 },
+    playback: { src: null, name: null, mapping: 'top', loop: true },
   };
 }
 
@@ -67,6 +68,7 @@ export function migrateProject(p) {
   out.blend = { ...base.blend, ...(p.blend || {}) };
   out.view = { ...base.view, ...(p.view || {}) };
   out.td = { ...base.td, ...(p.td || {}) };
+  out.playback = { ...base.playback, ...(p.playback || {}) };
   out.projectors = (p.projectors || base.projectors).map((pj, i) => ({ ...base.projectors[i % 8], ...pj, color: base.projectors[i % 8].color }));
   return out;
 }

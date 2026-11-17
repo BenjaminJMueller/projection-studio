@@ -9,6 +9,7 @@ import { Preview } from './preview.js';
 import { computeBlendMasks } from './blend.js';
 import { makeBrowserStub } from './stub.js';
 import { icon, hydrateIcons } from './icons.js';
+import { fileUrl, targetTime, playState } from '../shared/playback.js';
 
 const api = window.api || makeBrowserStub();
 const $ = (s) => document.querySelector(s);
@@ -41,6 +42,8 @@ const S = {
   mode: 'calibrate',
   ui: {},
   blendStatus: '',
+  play: { playing: false, startedAt: 0, pausedAt: 0, loop: true },
+  videoInfo: null,
 };
 const undoStack = [], redoStack = [];
 
@@ -667,7 +670,7 @@ function deleteMask() {
 }
 
 // ---------- 4 Ausgabe
-const TEST_MODES = [['edges', 'Kanten', 'Kanten des Modells'], ['grid', 'Raster', 'Gleichmäßiges Raster über das Modell'], ['white', 'Weiß', 'Weiße Fläche, zeigt Überblendung und Helligkeit'], ['ident', 'Nummer', 'Projektornummer groß']];
+const TEST_MODES = [['video', 'Video', 'Gewähltes Video auf dem Modell'], ['edges', 'Kanten', 'Kanten des Modells'], ['grid', 'Raster', 'Gleichmäßiges Raster über das Modell'], ['white', 'Weiß', 'Weiße Fläche, zeigt Überblendung und Helligkeit'], ['ident', 'Nummer', 'Projektornummer groß']];
 function renderOutput() {
   const v = S.project.view;
   const td = S.project.td;
@@ -680,6 +683,8 @@ function renderOutput() {
         ...TEST_MODES.map(([k, l, tip]) => el('button', { class: v.outputMode === k ? 'on' : '', 'data-tip': tip, 'data-mode': k, onclick: () => { v.outputMode = k; markDirty(); refresh(); } }, l)))),
       r('Masken anwenden', switchCtl(v.showMask, (on) => { v.showMask = on; if (on && !Object.keys(S.blendImages).length) computeBlend(); markDirty(); refresh(); }, { id: 'chkShowMask' }), { sub: 'Überblendung und eigene Masken' }),
     ),
+    gtitle('Wiedergabe', infoBtn('Spielt ein Video auf dem Modell ab, über alle Projektoren mit Überblendung und Masken. Beide HDMI-Ausgänge laufen synchron.')),
+    playbackGroup(),
     gtitle('TouchDesigner', infoBtn('Live senden schickt jede Änderung per OSC an TouchDesigner. Dort einen OSC In DAT mit osc_callbacks.py aus dem Export-Ordner anlegen.')),
     group(
       r('Live senden', switchCtl(td.live, (on) => { td.live = on; markDirty(); if (on) sendAllLive(); refresh(); }), { sub: td.live ? S.liveStatus || 'Bereit' : 'Aus' }),
@@ -690,6 +695,70 @@ function renderOutput() {
   const btn = $('#btnOutputs');
   btn.classList.toggle('on', isOpen);
   btn.setAttribute('aria-pressed', String(isOpen));
+}
+
+// ---------- Wiedergabe
+const fmtTime = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+const metaVideo = document.createElement('video');
+metaVideo.muted = true;
+metaVideo.preload = 'metadata';
+metaVideo.addEventListener('loadedmetadata', () => {
+  S.videoInfo = { duration: metaVideo.duration, width: metaVideo.videoWidth, height: metaVideo.videoHeight };
+  refresh();
+});
+metaVideo.addEventListener('error', () => { S.videoInfo = { error: true }; refresh(); });
+function loadVideoMeta() {
+  const src = S.project.playback.src;
+  S.videoInfo = null;
+  if (src) { metaVideo.src = fileUrl(src); metaVideo.load(); } else metaVideo.removeAttribute('src');
+}
+
+async function chooseVideo() {
+  const files = await api.openDialog({ title: 'Video wählen', filters: [{ name: 'Video', extensions: ['mp4', 'm4v', 'mov', 'webm', 'mkv'] }], properties: ['openFile'] });
+  if (files?.[0]) setVideo(files[0]);
+}
+function setVideo(file) {
+  const pb = S.project.playback;
+  pb.src = file;
+  pb.name = file.split(/[\\/]/).pop();
+  S.play = { playing: false, startedAt: Date.now(), pausedAt: 0, loop: pb.loop };
+  S.project.view.outputMode = 'video';
+  loadVideoMeta();
+  markDirty();
+  refresh();
+}
+
+function setPlay(action) {
+  const pb = S.project.playback;
+  if (!pb.src) return toast('Erst ein Video wählen.');
+  S.play = playState({ ...S.play, loop: pb.loop }, action, S.videoInfo?.duration || 0);
+  if (action === 'play') S.project.view.outputMode = 'video';
+  if (action === 'play' && !S.openOutputs.size) toggleOutputs(true);
+  refresh();
+}
+
+let playTicker = null;
+function playbackGroup() {
+  const pb = S.project.playback;
+  const info = S.videoInfo;
+  const dur = info?.duration || 0;
+  clearInterval(playTicker);
+  if (S.play.playing && S.mode === 'output') playTicker = setInterval(() => { const o = document.getElementById('playPos'); if (o) o.textContent = `${fmtTime(targetTime(S.play, dur))} / ${fmtTime(dur)}`; }, 250);
+  const sub = !pb.src ? 'Kein Video gewählt' : info?.error ? 'Datei lässt sich nicht abspielen' : info ? `${info.width} × ${info.height} · ${fmtTime(dur)}` : 'Lädt …';
+  return group(
+    el('div', { class: 'r sw' },
+      el('div', { class: 'lbl', style: 'gap:10px' }, ic('play', 18),
+        el('span', { style: 'overflow:hidden' }, el('span', { style: 'display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis', 'data-tip': pb.src || '' }, pb.name || 'Video'), el('span', { class: 'sub' }, sub))),
+      el('div', { class: 'ctl' }, el('button', { class: 'btn', onclick: chooseVideo, id: 'btnVideo' }, pb.src ? 'Ändern …' : 'Wählen …'))),
+    pb.src ? el('div', { class: 'r sw' },
+      el('div', { class: 'lbl', style: 'gap:8px' },
+        el('button', { class: 'btn primary', id: 'btnPlay', style: 'min-width:92px', onclick: () => setPlay(S.play.playing ? 'pause' : 'play') }, ic(S.play.playing ? 'pause' : 'play', 14), S.play.playing ? 'Pause' : 'Abspielen'),
+        el('button', { class: 'icon-btn', 'data-tip': 'Von vorn', 'aria-label': 'Von vorn', onclick: () => setPlay('restart'), html: icon('restart') })),
+      el('div', { class: 'ctl' }, el('span', { class: 'muted', id: 'playPos' }, `${fmtTime(targetTime(S.play, dur))} / ${fmtTime(dur)}`))) : null,
+    r('Abbildung', select([['top', 'Draufsicht'], ['uv', 'Modell-UV']], pb.mapping, (v) => { pb.mapping = v; markDirty(); refresh(); }),
+      { tip: 'Draufsicht legt das Video wie von oben gesehen über den Grundriss, Norden oben. Modell-UV nutzt die Texturkoordinaten aus dem 3D-Modell.' }),
+    r('Schleife', switchCtl(pb.loop, (v) => { pb.loop = v; S.play = { ...S.play, loop: v }; markDirty(); refresh(); })),
+  );
 }
 
 // ------------------------------------------------------------------ TouchDesigner live (OSC)
@@ -721,6 +790,7 @@ function broadcast() {
       project: S.project,
       activeId: S.activeId,
       activePointId: S.activePointId,
+      play: S.play,
       modelPath: S.project.model.path,
     });
   });
@@ -896,6 +966,8 @@ async function applyProject(data) {
   undoStack.length = redoStack.length = 0;
   if (S.project.model.path && (await api.exists(S.project.model.path))) await loadModelFromPath(S.project.model.path);
   for (const p of S.project.projectors) if (p.points.length) scheduleSolve(p);
+  S.play = { playing: false, startedAt: Date.now(), pausedAt: 0, loop: S.project.playback.loop };
+  loadVideoMeta();
   refresh();
 }
 
@@ -1190,5 +1262,5 @@ api.onMenu((cmd) => ({
   await syncOpenOutputs();
   refresh();
   if (!onboardingSeen()) showOnboarding(0);
-  window.__app = { S, view, refresh, scheduleSolve, selectPoint, computeBlend, toggleOutputs, setMode, showOnboarding, closeOnboarding, ready: true };
+  window.__app = { S, view, refresh, setVideo, setPlay, scheduleSolve, selectPoint, computeBlend, toggleOutputs, setMode, showOnboarding, closeOnboarding, ready: true };
 })();
