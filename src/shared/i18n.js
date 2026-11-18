@@ -394,6 +394,8 @@ const EN = {
   'Kontrast feiner Streifen {0} % (gut ab {1} %)': 'Contrast of fine stripes {0} % (good from {1} %)',
   'Kamera-Standort ungenau ({0} px). Ist der Bezugsprojektor gut kalibriert und die Kamera fest?': 'Camera position inaccurate ({0} px). Is the reference projector well calibrated and the camera fixed?',
   // ---- UX-Runde Nov 2026
+  'Präzise Synchronisierung': 'Precise sync',
+  'Misst bei jedem Videobild, wann es wirklich auf dem Bildschirm erscheint, und gleicht die Ausgänge darauf ab. Wichtig bei mehreren Rechnern. Kostet kaum Rechenzeit. Pro Ausgang lässt sich eine Verzögerung einstellen, z. B. wenn ein Projektor langsamer ist.': 'Measures for every video frame when it actually appears on screen and aligns the outputs to that. Important with multiple computers. Costs hardly any processing time. A delay can be set per output, e.g. if one projector is slower.',
   'macOS sperrt das lokale Netz': 'macOS blocks the local network',
   'Systemeinstellungen → Datenschutz & Sicherheit → Lokales Netzwerk → „Projection Studio“ einschalten. Danach die App neu starten.': 'System Settings → Privacy & Security → Local Network → turn on “Projection Studio”. Then restart the app.',
   'Einstellungen öffnen': 'Open settings',
@@ -497,6 +499,8 @@ const EN = {
 
 // Muster mit Namen statt Zahlen
 const PATTERNS = [
+  [/^Verzögerung (.+) in ms$/, (m) => `Delay ${m[1]} in ms`],
+  [/^Verzögerung (.+)$/, (m) => `Delay ${m[1]}`],
   [/^Verbunden mit (.+)$/, (m) => `Connected to ${m[1]}`],
   [/^Verbinde mit (.+) …$/, (m) => `Connecting to ${m[1]} …`],
   [/^Rechner für (.+)$/, (m) => `Computer for ${m[1]}`],

@@ -261,6 +261,42 @@ await win.waitForTimeout(300);
 await win.screenshot({ path: path.join(outDir, '08b-wiedergabe.png') });
 console.log('Leistung (Werkzeugleiste):', await win.evaluate(() => document.getElementById('fpsBadge')?.textContent));
 console.log('Video läuft:', { t1: +t1.toFixed(2), t2: +t2.toFixed(2) });
+// Präzise Synchronisierung: Abweichung zur gemeinsamen Uhr messen, dann 100 ms Verzögerung für HDMI A
+{
+  const drift = () => outWin.evaluate(async () => {
+    const { st, video } = window.__out;
+    const errs = [];
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => video.requestVideoFrameCallback((now, m) => {
+        const d = video.duration, t = ((Date.now() - performance.now() + m.expectedDisplayTime - st.play.startedAt) / 1000) % d;
+        let e = m.mediaTime - t; if (e > d / 2) e -= d; if (e < -d / 2) e += d;
+        errs.push(e); r();
+      }));
+    }
+    errs.sort((a, b) => a - b);
+    return errs[10];
+  });
+  const active = () => outWin.evaluate(() => performance.now() - (window.__out.player.precise || 0) < 500);
+  const eOld = await drift();
+  await win.click('#swPrecise');
+  await win.waitForFunction(() => window.__app.S.project.playback.precise === true);
+  await outWin.waitForTimeout(3000);
+  const e0 = await drift();
+  const on0 = await active();
+  await win.evaluate(() => { const { S, refresh } = window.__app; S.project.outputs.find((o) => o.id === 'A').delayMs = 100; refresh(); });
+  await outWin.waitForTimeout(5000);
+  const e1 = await drift();
+  const delayArrived = await outWin.evaluate(() => window.__out.st.project.outputs.find((o) => o.id === 'A').delayMs === 100);
+  console.log('Präzise Synchronisierung:', { ohne_ms: Math.round(eOld * 1000), abweichung_ms: Math.round(e0 * 1000), mit_100ms_verzoegerung_ms: Math.round(e1 * 1000) });
+  // Die Genauigkeit selbst ist hier nicht messbar: die Test-VM rendert in Software mit ~6 fps, die Werte
+  // streuen um ±100 ms. Gemessen wird sie mit leichter Last getrennt (test/e2e/sync-measure.mjs); hier nur, dass der
+  // bildgenaue Abgleich läuft und die Verzögerung beim Ausgang ankommt. Rechnung: test/precise.test.js.
+  if (!on0) errors.push('error: präzise Synchronisierung läuft im Ausgang nicht');
+  if (!delayArrived) errors.push('error: Verzögerung kommt beim Ausgang nicht an');
+  await win.locator('#swPrecise').scrollIntoViewIfNeeded();
+  await win.screenshot({ path: path.join(outDir, '08e-praezise-sync.png') });
+  await win.evaluate(() => { const { S, refresh } = window.__app; S.project.outputs.find((o) => o.id === 'A').delayMs = 0; S.project.playback.precise = false; refresh(); });
+}
 if (!(t2 > t1 + 0.5 || t2 < t1)) errors.push('error: Video läuft im Ausgabefenster nicht');
 
 // Playlist: zweites Video anhängen, Ausgabe muss nach dem ersten wechseln

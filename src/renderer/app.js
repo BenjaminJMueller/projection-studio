@@ -1458,6 +1458,11 @@ function playbackGroup() {
       r(list.length > 1 ? 'Liste wiederholen' : 'Schleife', switchCtl(pb.loop, (v) => { pb.loop = v; S.play = { ...S.play, loop: v }; markDirty(); refresh(); })),
       r('Bildrate', select(FPS_CHOICES.map((f) => [f, f ? `${f} fps` : 'Wie Video']), pb.fps || 0, (v) => { pb.fps = Number(v); markDirty(); refresh(); }),
         { tip: 'Höchstens so viele Bilder pro Sekunde ausgeben. „Wie Video“ zeichnet jedes Videobild. Eine niedrigere Rate entlastet die Grafikkarte, z. B. 25 fps für Material mit 50 fps.' }),
+      r('Präzise Synchronisierung', switchCtl(!!pb.precise, (v) => { pb.precise = v; markDirty(); refresh(); }, { id: 'swPrecise' }),
+        { tip: 'Misst bei jedem Videobild, wann es wirklich auf dem Bildschirm erscheint, und gleicht die Ausgänge darauf ab. Wichtig bei mehreren Rechnern. Kostet kaum Rechenzeit. Pro Ausgang lässt sich eine Verzögerung einstellen, z. B. wenn ein Projektor langsamer ist.' }),
+      ...(pb.precise ? S.project.outputs.filter((o) => !o.solo).map((o) => r(`Verzögerung ${o.name}`,
+        el('div', { style: 'display:flex;gap:6px;align-items:center' }, input(o.delayMs || 0, (v) => { o.delayMs = Math.max(-200, Math.min(500, Math.round(Number(v) || 0))); markDirty(); refresh(); }, 'number', { style: 'width:72px', step: 1, 'aria-label': `Verzögerung ${o.name} in ms` }), el('span', { class: 'muted' }, 'ms')),
+        { sub: o.host ? o.hostName || o.host : null })) : []),
     ) : null,
   ];
 }

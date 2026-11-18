@@ -119,7 +119,14 @@ const player = new PlaylistPlayer(() => {
   textures.set(v, tex);
   v.addEventListener('loadedmetadata', () => { syncVideo(); draw(); });
   v.addEventListener('seeked', () => { if (v === video) draw(false); });
-  v.requestVideoFrameCallback(function cb(now) { if (v === video) onFrame(now); v.requestVideoFrameCallback(cb); });
+  v.requestVideoFrameCallback(function cb(now, meta) {
+    if (v === video) {
+      const pb = st.project?.playback;
+      if (pb?.precise) player.frameSync(v, meta, pb, st.play, outputDelay());
+      onFrame(now);
+    }
+    v.requestVideoFrameCallback(cb);
+  });
   return v;
 }, (v) => { video = v; mats.video.map = textures.get(v); mats.video.needsUpdate = true; draw(false); });
 let video = player.el;
@@ -128,7 +135,13 @@ mats.video.map = textures.get(video);
 /** Auf die gemeinsame Uhr abgleichen. Läuft alle 250 ms und bei jeder Zustandsänderung. */
 function syncVideo() {
   if (st.project?.view.outputMode !== 'video') return player.stop();
-  player.sync(st.project.playback, st.play);
+  player.sync(st.project.playback, st.play, 0, outputDelay());
+}
+/** Verzögerung dieses Ausgangs in ms (Präzise Synchronisierung). */
+function outputDelay() {
+  const pb = st.project?.playback;
+  if (!pb?.precise) return 0;
+  return Number(st.project.outputs.find((o) => o.id === outputId)?.delayMs) || 0;
 }
 setInterval(syncVideo, 250);
 // Bildrate begrenzen (Wiedergabe → Bildrate): Videobilder, die zu früh kommen, werden ausgelassen.
