@@ -1,6 +1,6 @@
 // Hauptfenster: Zustand, Bedienlogik, Solver-Anbindung, Export.
 import { buildModel } from '../shared/scene.js';
-import { newProject, migrateProject, groupLabel, groupsOf, addProjector, addOutput, MAX_PROJECTORS, MAX_VIDEO_OUTPUTS, QUADRANT_NAMES, LAYOUTS, layoutOf, cellCount, cellName, arrangeOutput, quadrantRect } from '../shared/project.js';
+import { newProject, migrateProject, groupLabel, groupsOf, addProjector, addOutput, connectionOf, setConnection, MAX_PROJECTORS, MAX_VIDEO_OUTPUTS, QUADRANT_NAMES, LAYOUTS, layoutOf, cellCount, cellName, arrangeOutput, quadrantRect } from '../shared/project.js';
 import { LENS_PRESETS, PROJECTOR_DB, OFFSET_FORMATS, offsetToBelow, lensFor } from '../core/lenses.js';
 import { projectPoint, suggestNextImageRegion } from '../core/solver.js';
 import { exportProjector } from '../core/export.js';
@@ -587,9 +587,25 @@ function numberList(ns) {
   const contiguous = ns.every((n, i) => !i || n === ns[i - 1] + 1);
   return contiguous ? `Projektor ${ns[0]} bis ${ns[ns.length - 1]}` : `Projektoren ${ns.join(', ')}`;
 }
-function outputRows() {
+/** Schnellwahl: Projektoren über Video-Wall-Controller oder direkt, je HDMI-Ausgang einer. */
+function connectionRow(after = () => {}) {
+  const cur = connectionOf(S.project);
+  const n = S.project.projectors.filter((p) => p.enabled).length;
+  const pick = (kind) => {
+    if (kind === cur) return;
+    pushUndo();
+    const without = setConnection(S.project, kind);
+    markDirty(); refresh(); after();
+    toast(without ? `Höchstens ${MAX_VIDEO_OUTPUTS} HDMI-Ausgänge: ${without} Projektoren ohne Ausgang.` : kind === 'direct' ? 'Je HDMI-Ausgang ein Projektor.' : 'Je HDMI-Ausgang vier Projektoren (2 × 2).');
+  };
+  return el('div', { class: 'r wide' }, el('div', { class: 'seg fill seg-conn', role: 'radiogroup', 'aria-label': 'Anschluss' },
+    el('button', { class: cur === 'controller' ? 'on' : '', 'data-conn': 'controller', 'data-tip': 'Ein Video-Wall-Controller (z. B. LogiLink HD0054) verteilt jeden HDMI-Ausgang auf vier Projektoren.', onclick: () => pick('controller') }, 'Über Controller'),
+    el('button', { class: cur === 'direct' ? 'on' : '', 'data-conn': 'direct', 'data-tip': n > MAX_VIDEO_OUTPUTS ? `Höchstens ${MAX_VIDEO_OUTPUTS} HDMI-Ausgänge, also ${MAX_VIDEO_OUTPUTS} von ${n} Projektoren.` : 'Jeder Projektor hängt an einem eigenen HDMI-Ausgang.', onclick: () => pick('direct') }, 'Direkt, je Ausgang einer')));
+}
+
+function outputRows({ solo = true } = {}) {
   const opts = [['', 'Kein Bildschirm'], ...S.displays.map((d) => [d.id, `${d.label} · ${d.pixelSize.width} × ${d.pixelSize.height}`])];
-  return S.project.outputs.map((o) => {
+  return S.project.outputs.filter((o) => solo || !o.solo).map((o) => {
     const ps = S.project.projectors.filter((p) => p.output === o.id).map((p) => indexOf(p) + 1);
     const d = S.displays.find((x) => x.id === o.displayId);
     const L = layoutOf(o);
@@ -597,12 +613,12 @@ function outputRows() {
     const first = S.project.projectors.find((p) => p.output === o.id);
     const want = !o.solo && first ? [L.cols * first.resolution[0], L.rows * first.resolution[1]] : null;
     const mismatch = d && want && (d.pixelSize.width !== want[0] || d.pixelSize.height !== want[1]);
-    const sub = o.solo ? 'zeigt den gewählten Projektor allein' : ps.length ? numberList(ps) : 'nicht belegt';
+    const sub = o.solo ? 'optional · zeigt den gewählten Projektor' : ps.length ? numberList(ps) : 'nicht belegt';
     return el('div', { class: 'r stack' },
       el('div', { class: 'lbl', style: 'gap:10px' }, quadDiagram(o),
         el('span', {}, o.name, el('span', { class: 'sub' }, sub),
           mismatch ? el('span', { class: 'sub', style: 'color:var(--warn)' }, `Bildschirm hat ${d.pixelSize.width} × ${d.pixelSize.height}, erwartet ${want[0]} × ${want[1]}`) : null),
-        o.solo ? infoBtn('Zum Kalibrieren einen Projektor direkt anschließen, ohne Video-Wall-Controller. Dieser Ausgang zeigt immer den Projektor, der gerade links gewählt ist, im ganzen Bild.') : null),
+        o.solo ? infoBtn('Optional, nur als Hilfe beim Kalibrieren: zeigt immer den Projektor, der gerade links gewählt ist, im ganzen Bild. Ein fest angeschlossener Projektor bekommt dagegen einen normalen HDMI-Ausgang mit „1 Projektor“.') : null),
       el('div', { class: 'ctl' },
         select(opts, o.displayId ?? '', (v) => assignDisplay(o, v ? Number(v) : null), { 'aria-label': `Bildschirm für ${o.name}` }),
         o.solo ? null : select(Object.entries(LAYOUTS).map(([k, x]) => [k, x.label]), o.layout, (v) => {
@@ -632,7 +648,7 @@ function renderSetup() {
     gtitle('3D-Modell'),
     group(modelRow()),
     gtitle('Bildschirme', infoBtn('Jeder Ausgang der Grafikkarte wird in Viertel geteilt, jedes Viertel geht an einen Projektor.')),
-    group(...outputRows(),
+    group(connectionRow(), ...outputRows(),
       S.project.outputs.filter((x) => !x.solo).length < MAX_VIDEO_OUTPUTS ? el('div', { class: 'r' }, el('div', { class: 'lbl' }, el('span', { class: 'sub' }, 'Weiterer Grafikkarten-Ausgang')),
         el('div', { class: 'ctl' }, el('button', { class: 'btn', id: 'btnAddOutput', onclick: () => { const o = addOutput(S.project); if (o) { markDirty(); refresh(); toast(`${o.name} angelegt`); } } }, ic('plus', 14), 'Ausgang hinzufügen'))) : null,
       r('Maus springt mit', switchCtl(!!S.project.view.mouseFollow, (v) => { S.project.view.mouseFollow = v; markDirty(); refresh(); if (v) mouseToProjector(); }),
@@ -1877,8 +1893,10 @@ function renderOnboarding() {
     ],
     () => [
       el('h1', { id: 'obTitle' }, 'Bildschirme zuordnen'),
-      el('p', { class: 'lead' }, 'Welcher Grafikkarten-Ausgang speist welche Projektoren? Geht auch später unter „Einrichten“.'),
-      el('div', { class: 'group' }, ...outputRows()),
+      el('p', { class: 'lead' }, 'Je HDMI-Ausgang ein Projektor direkt oder mehrere über einen Video-Wall-Controller. Geht auch später unter „Einrichten“.'),
+      el('div', { class: 'group' }, connectionRow(() => renderOnboarding()), ...outputRows({ solo: false }),
+        S.project.outputs.filter((x) => !x.solo).length < MAX_VIDEO_OUTPUTS ? el('div', { class: 'r' }, el('div', { class: 'lbl' }, el('span', { class: 'sub' }, 'Weiterer HDMI-Ausgang')),
+          el('div', { class: 'ctl' }, el('button', { class: 'btn', onclick: () => { if (addOutput(S.project)) { markDirty(); refresh(); renderOnboarding(); } } }, ic('plus', 14), 'Ausgang hinzufügen'))) : null),
     ],
     () => [
       el('h1', { id: 'obTitle', style: 'margin-top:8px' }, 'So setzt du einen Punkt'),

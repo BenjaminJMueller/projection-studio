@@ -37,6 +37,16 @@ await win.screenshot({ path: path.join(outDir, '00-einfuehrung-2.png') });
 await win.click('#obNext');
 await win.waitForTimeout(300);
 await win.screenshot({ path: path.join(outDir, '00-einfuehrung-3.png') });
+// Direkt angeschlossen: je Ausgang ein Projektor, höchstens 4 HDMI-Ausgänge
+await win.click('#onboarding .seg-conn [data-conn=direct]');
+await win.waitForTimeout(300);
+{
+  const c = await win.evaluate(() => ({ outs: window.__app.S.project.outputs.filter((o) => !o.solo).map((o) => o.layout), first: window.__app.S.project.projectors.slice(0, 5).map((p) => p.output) }));
+  if (c.outs.join() !== '1x1,1x1,1x1,1x1' || c.first.join() !== 'A,B,C,D,') errors.push('error: Anschluss direkt ' + JSON.stringify(c));
+}
+await win.screenshot({ path: path.join(outDir, '00-einfuehrung-3b-direkt.png') });
+await win.click('#onboarding .seg-conn [data-conn=controller]');
+await win.waitForTimeout(300);
 await win.click('#obNext');
 await win.waitForTimeout(300);
 await win.screenshot({ path: path.join(outDir, '00-einfuehrung-4.png') });

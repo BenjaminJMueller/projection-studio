@@ -85,6 +85,40 @@ export function addOutput(project) {
   return o;
 }
 
+/** Wie die Projektoren angeschlossen sind: 'direct' (je HDMI-Ausgang einer), 'controller' oder 'mixed'. */
+export function connectionOf(project) {
+  const vids = project.outputs.filter((o) => !o.solo);
+  if (vids.every((o) => cellCount(o) === 1)) return 'direct';
+  if (vids.every((o) => o.layout === '2x2')) return 'controller';
+  return 'mixed';
+}
+
+/**
+ * Ausgänge und Zuordnung für eine Anschlussart neu anlegen. Gewählte Bildschirme bleiben erhalten.
+ * direct: je Ausgang ein Projektor (höchstens MAX_VIDEO_OUTPUTS), controller: je Ausgang 2 × 2.
+ * Rückgabe: Anzahl Projektoren ohne Ausgang.
+ */
+export function setConnection(project, kind) {
+  const ps = project.projectors.filter((p) => p.enabled);
+  const per = kind === 'direct' ? 1 : 4;
+  const n = Math.max(1, Math.min(MAX_VIDEO_OUTPUTS, Math.ceil(ps.length / per)));
+  const old = project.outputs.filter((o) => !o.solo);
+  const solo = project.outputs.filter((o) => o.solo);
+  const ids = 'ABCD'.split('');
+  const vids = ids.slice(0, n).map((id) => {
+    const prev = old.find((o) => o.id === id);
+    return { ...(prev || { id, name: `HDMI ${id}`, displayId: null }), layout: kind === 'direct' ? '1x1' : '2x2' };
+  });
+  project.outputs = [...vids, ...solo];
+  let without = 0;
+  ps.forEach((p, i) => {
+    const k = Math.floor(i / per);
+    if (k < n) { p.output = vids[k].id; p.quadrant = i % per; } else { p.output = ''; p.quadrant = 0; without++; }
+  });
+  for (const p of project.projectors) if (!p.enabled && !vids.some((o) => o.id === p.output)) p.output = '';
+  return without;
+}
+
 export function newProject() {
   return {
     version: PROJECT_VERSION,
@@ -122,7 +156,7 @@ export function newProject() {
  * wie dem LogiLink HD0054, der ein 4K-Bild auf vier Full-HD-Projektoren verteilt.
  */
 export const LAYOUTS = {
-  '1x1': { rows: 1, cols: 1, label: 'Ganz', hint: 'Projektor direkt angeschlossen' },
+  '1x1': { rows: 1, cols: 1, label: '1 Projektor', hint: 'Projektor direkt am HDMI-Ausgang' },
   '2x2': { rows: 2, cols: 2, label: '2 × 2', hint: 'Video-Wall-Controller, 4 Projektoren im Quadrat' },
   '1x2': { rows: 1, cols: 2, label: '2 nebeneinander', hint: 'Controller oder Splitter, 2 Projektoren' },
   '2x1': { rows: 2, cols: 1, label: '2 übereinander', hint: 'Controller, 2 Projektoren' },
