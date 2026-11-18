@@ -39,6 +39,9 @@ await win.waitForTimeout(300);
 await win.screenshot({ path: path.join(outDir, '00-einfuehrung-3.png') });
 await win.click('#obNext');
 await win.waitForTimeout(300);
+await win.screenshot({ path: path.join(outDir, '00-einfuehrung-4.png') });
+await win.click('#obNext');
+await win.waitForTimeout(300);
 await win.screenshot({ path: path.join(outDir, '01-start.png') });
 
 // Demo: synthetische Kalibrierung für P1 und P2 (aus bekannten Kameras erzeugt)
@@ -101,6 +104,31 @@ await win.waitForTimeout(1500);
 await win.screenshot({ path: path.join(outDir, '02b-vorschlaege.png') });
 await win.evaluate(() => { const { S, scheduleSolve, refresh } = window.__app; const p = S.project.projectors[0]; p.points.forEach((x) => { x.enabled = true; }); scheduleSolve(p); refresh(); });
 await win.waitForTimeout(1000);
+
+// Legende: ein falsch gesetzter Punkt wird rot markiert und erklärt
+{
+  const orig = await win.evaluate(() => { const { S, scheduleSolve, refresh } = window.__app; const p = S.project.projectors[0]; const pt = p.points[1]; const o = [...pt.image]; pt.image = [o[0] + 40, o[1] - 30]; scheduleSolve(p); refresh(); return o; });
+  await win.waitForTimeout(1500);
+  const leg = await win.locator('#legend3d').innerText();
+  if (!/passt nicht/.test(leg)) errors.push(`error: Legende erklärt rote Markierung nicht (${leg})`);
+  await win.screenshot({ path: path.join(outDir, '02c-legende.png') });
+  await win.evaluate((o) => { const { S, scheduleSolve, refresh } = window.__app; const p = S.project.projectors[0]; p.points[1].image = o; scheduleSolve(p); refresh(); }, orig);
+  await win.waitForTimeout(1000);
+}
+
+// Gruppen: neue Gruppe anlegen, benennen, Projektor hineinziehen
+{
+  await win.click('#btnAddGroup');
+  await win.fill('.side-label-edit', 'Empore');
+  await win.press('.side-label-edit', 'Enter');
+  await win.locator('.proj-group[data-group="außen"] .proj-row').last().dragTo(win.locator('.proj-group[data-group="Empore"]'));
+  await win.waitForTimeout(300);
+  const ring = await win.evaluate(() => window.__app.S.project.projectors.filter((p) => p.ring === 'Empore').length);
+  if (ring !== 1) errors.push(`error: Projektor nicht in neue Gruppe verschoben (${ring})`);
+  await win.locator('.proj-row').first().hover();
+  await win.screenshot({ path: path.join(outDir, '02d-gruppen.png') });
+  await win.evaluate(() => { const { S, refresh } = window.__app; S.project.projectors.forEach((p) => { if (p.ring === 'Empore') p.ring = 'außen'; }); S.project.groups = S.project.groups.filter((g) => g !== 'Empore'); refresh(); });
+}
 
 // Projektor-Sicht
 await win.click('#viewMode button[data-view=projector]');
@@ -334,6 +362,27 @@ await win.screenshot({ path: path.join(outDir, '09-feinkorrektur.png') });
   await win.waitForTimeout(500);
   await win.screenshot({ path: path.join(outDir, '09a-feinkorrektur-punkte.png') });
   await win.evaluate(() => { const w = window.__app.S.project.projectors[0].warp; w.bezier = false; });
+  // zweiter freier Punkt, Liste zeigt beide; Rechtsklick entfernt ihn wieder
+  const x2 = box.x + box.width * 0.3, y2 = box.y + box.height * 0.7;
+  await win.mouse.click(x2, y2);
+  await win.waitForTimeout(300);
+  const rows = await win.locator('.pin-row').count();
+  if (rows !== 2) errors.push(`error: Liste der freien Punkte zeigt ${rows} statt 2`);
+  await win.screenshot({ path: path.join(outDir, '09d-freie-punkte-liste.png') });
+  await win.mouse.click(x2, y2, { button: 'right' });
+  await win.waitForTimeout(300);
+  const left = await win.evaluate(() => window.__app.S.project.projectors[0].warp.pins.length);
+  if (left !== 1) errors.push(`error: Rechtsklick hat den freien Punkt nicht entfernt (${left})`);
+  // Projektorbild groß über der 3D-Ansicht
+  await win.click('#btnPreviewBig');
+  await win.waitForTimeout(500);
+  const bigW = (await win.locator('#preview2d').boundingBox()).width;
+  if (bigW < box.width * 1.5) errors.push(`error: Vorschau wird nicht groß (${bigW} px)`);
+  await win.screenshot({ path: path.join(outDir, '09e-feinkorrektur-gross.png') });
+  await win.evaluate(() => { const { S, refresh } = window.__app; S.activeHandle = null; S.activePin = null; refresh(); });
+  await win.keyboard.press('Escape');
+  await win.waitForTimeout(300);
+  if (await win.evaluate(() => document.body.classList.contains('preview-big'))) errors.push('error: Esc schließt die große Vorschau nicht');
 }
 await outWin.screenshot({ path: path.join(outDir, '09b-ausgang-A-feinkorrektur.png') });
 await win.click('#modes button[data-mode=output]');

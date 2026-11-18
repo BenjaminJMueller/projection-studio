@@ -38,6 +38,12 @@ export function defaultProjectors() {
 }
 
 /** Gruppenname für die Anzeige (die Ringe des Gewölbes heißen Innenring/Außenring). */
+/** Gruppen in Anzeige-Reihenfolge: gespeicherte (auch leere) zuerst, dann die übrigen aus den Projektoren. */
+export function groupsOf(project) {
+  const out = [...(project.groups || [])];
+  for (const p of project.projectors) if (!out.includes(p.ring || '')) out.push(p.ring || '');
+  return out;
+}
 export const groupLabel = (g) => (g === 'innen' ? 'Innenring' : g === 'außen' ? 'Außenring' : g || 'Projektoren');
 
 /**
@@ -90,6 +96,7 @@ export function newProject() {
       { id: 'T', name: 'Testausgang', displayId: null, layout: '1x1', solo: true },
     ],
     projectors: defaultProjectors(),
+    groups: ['innen', 'außen'], // Gruppen der Seitenleiste (Reihenfolge, auch leere)
     projectorTypes: [], // eigene Projektor-Typen aus Datenblättern (siehe core/lenses.js)
     blend: {
       auto: true,
@@ -173,5 +180,7 @@ export function migrateProject(p) {
   out.outputs = (p.outputs || base.outputs).map((o) => ({ ...o }));
   if (!out.outputs.some((o) => o.solo)) out.outputs.push({ ...base.outputs[2] });
   out.projectors = (p.projectors || base.projectors).slice(0, MAX_PROJECTORS).map((pj, i) => { const d = makeProjector(i); return { ...d, ...pj, color: pj.color || d.color }; });
+  out.groups = Array.isArray(p.groups) ? [...p.groups] : [];
+  out.groups = groupsOf(out);
   return out;
 }

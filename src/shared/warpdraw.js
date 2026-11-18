@@ -64,5 +64,9 @@ export function drawWarpOverlay(g, w, W, H, px, sel = {}) {
     g.beginPath(); g.moveTo(x, y - r); g.lineTo(x + r, y); g.lineTo(x, y + r); g.lineTo(x - r, y); g.closePath();
     g.fillStyle = on ? '#0a84ff' : '#f0a531'; g.fill();
     g.lineWidth = 1.5 * px; g.strokeStyle = '#fff'; g.stroke();
+    // Nummer wie in der Liste im Inspektor
+    g.font = `600 ${11 * px}px -apple-system, system-ui, sans-serif`; g.textBaseline = 'middle';
+    g.lineWidth = 3 * px; g.strokeStyle = 'rgba(0,0,0,.7)'; g.strokeText(String(i + 1), x + r + 3 * px, y);
+    g.fillStyle = '#fff'; g.fillText(String(i + 1), x + r + 3 * px, y);
   });
 }

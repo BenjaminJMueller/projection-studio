@@ -384,18 +384,18 @@ export function solveProjector(o) {
   const warnings = [];
   const planarity = geo.values[2] / Math.max(geo.values[0], 1e-30);
   const coverage = imageCoverage(pts.map((p) => p.image), W, H);
-  if (n < 6) warnings.push({ level: 'info', text: `Vorläufige Lösung aus ${n} Punkten – 6 oder mehr gut verteilte Punkte machen sie stabil.` });
-  if (coverage < 0.15) warnings.push({ level: 'warn', text: 'Die Punkte decken nur einen kleinen Teil des Projektorbildes ab. Setze Punkte nahe an die Bildecken.' });
-  if (ambiguous) warnings.push({ level: 'warn', text: 'Mehrdeutig: Eine deutlich andere Projektorposition passt fast genauso gut. Setze einen weiteren Punkt in einer leeren Bildregion.' });
+  if (n < 6) warnings.push({ level: 'info', text: `Vorläufig, ${n} Punkte`, detail: '6 oder mehr gut verteilte Punkte machen die Lösung stabil.' });
+  if (coverage < 0.15) warnings.push({ level: 'warn', text: 'Punkte zu eng beieinander', detail: 'Die Punkte decken nur einen kleinen Teil des Projektorbilds ab. Punkte nahe an die Bildecken setzen.' });
+  if (ambiguous) warnings.push({ level: 'warn', text: 'Mehrdeutig', detail: 'Eine deutlich andere Projektorposition passt fast genauso gut. Einen Punkt in einer leeren Bildregion setzen.' });
   const worst = errors.reduce((a, b) => (b.error > a.error ? b : a), errors[0]);
   if (n >= 5 && worst.error > Math.max(8, 3 * rms)) {
-    warnings.push({ level: 'warn', text: `Punkt ${worst.id ?? ''} passt schlecht (${worst.error.toFixed(1)} px) – evtl. falsch zugeordnet?`, pointId: worst.id });
+    warnings.push({ level: 'warn', text: `Punkt ${worst.id ?? ''} passt nicht (${worst.error.toFixed(1)} px)`, detail: 'Wahrscheinlich falsch zugeordnet: im Modell oder im Bild neu setzen, oder abwählen.', pointId: worst.id });
   }
-  if (best.mirror) warnings.push({ level: 'info', text: 'Lösung ist gespiegelt. Falls das Bild auf der Decke seitenverkehrt erscheint, im Beamer-Menü Front/Rück umstellen.' });
-  if (sigmaCenter > 0.15 * extent) warnings.push({ level: 'warn', text: `Position noch unsicher (±${sigmaCenter.toFixed(2)} Einheiten). Mehr Punkte mit unterschiedlicher Höhe/Tiefe helfen.` });
+  if (best.mirror) warnings.push({ level: 'info', text: 'Gespiegelt', detail: 'Bei Projektion über einen Spiegel ist das richtig. Sonst im Beamer-Menü Front/Rück umstellen.' });
+  if (sigmaCenter > 0.15 * extent) warnings.push({ level: 'warn', text: 'Position noch unsicher', detail: `±${sigmaCenter.toFixed(2)} Einheiten. Mehr Punkte in unterschiedlicher Höhe und Tiefe helfen.` });
   const throwRatio = cam.f / W;
   if (throwRatio < lens.throwMin * 0.98 || throwRatio > lens.throwMax * 1.02) {
-    warnings.push({ level: 'warn', text: `Wurfverhältnis ${throwRatio.toFixed(2)} liegt außerhalb des Objektivbereichs – Punkte prüfen oder Objektiv-Preset ändern.` });
+    warnings.push({ level: 'warn', text: 'Wurfverhältnis passt nicht', detail: `${throwRatio.toFixed(2)} liegt außerhalb des Objektivbereichs. Punkte oder Projektor-Typ prüfen.` });
   }
 
   const solution = {

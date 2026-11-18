@@ -209,6 +209,11 @@ export class Preview {
     };
     this.c2.addEventListener('pointerup', up);
     this.c2.addEventListener('pointercancel', up);
+    this.c2.addEventListener('contextmenu', (e) => {
+      if (this.mode !== 'warp' || !this.p) return;
+      e.preventDefault();
+      this.h.onWarpPointer?.(this.toPx(e), 'context');
+    });
     this.c2.addEventListener('dblclick', (e) => {
       if (this.mode === 'masks') this.h.onMaskPointer?.(this.toPx(e), 'dblclick', e);
     });

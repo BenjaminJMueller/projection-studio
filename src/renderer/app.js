@@ -1,6 +1,6 @@
 // Hauptfenster: Zustand, Bedienlogik, Solver-Anbindung, Export.
 import { buildModel } from '../shared/scene.js';
-import { newProject, migrateProject, groupLabel, addProjector, addOutput, MAX_PROJECTORS, MAX_VIDEO_OUTPUTS, QUADRANT_NAMES, LAYOUTS, layoutOf, cellCount, cellName, arrangeOutput, quadrantRect } from '../shared/project.js';
+import { newProject, migrateProject, groupLabel, groupsOf, addProjector, addOutput, MAX_PROJECTORS, MAX_VIDEO_OUTPUTS, QUADRANT_NAMES, LAYOUTS, layoutOf, cellCount, cellName, arrangeOutput, quadrantRect } from '../shared/project.js';
 import { LENS_PRESETS, PROJECTOR_DB, OFFSET_FORMATS, offsetToBelow, lensFor } from '../core/lenses.js';
 import { projectPoint, suggestNextImageRegion } from '../core/solver.js';
 import { exportProjector } from '../core/export.js';
@@ -324,6 +324,7 @@ function refresh(light = false) {
     }
     renderCalibrate();
     renderGuide();
+    renderLegend();
     renderDocState();
     renderTransport();
     if (A().enabled) syncAudio();
@@ -426,7 +427,8 @@ function statusOf(p) {
 function projRow(p) {
   const i = indexOf(p);
   const st = statusOf(p);
-  return el('div', { class: `proj-row ${p.id === S.activeId ? 'active' : ''} ${p.enabled ? '' : 'disabled'}`, onclick: () => selectProjector(p.id), role: 'button', tabindex: 0, 'aria-label': displayName(p) },
+  return el('div', { class: `proj-row ${p.id === S.activeId ? 'active' : ''} ${p.enabled ? '' : 'disabled'}`, onclick: () => selectProjector(p.id), role: 'button', tabindex: 0, 'aria-label': displayName(p),
+    draggable: 'true', ondragstart: (e) => { S.dragProj = p.id; e.dataTransfer.setData('text/x-projector', p.id); e.dataTransfer.effectAllowed = 'move'; }, ondragend: () => { S.dragProj = null; document.querySelectorAll('.proj-group.drop').forEach((x) => x.classList.remove('drop')); } },
     el('span', { class: 'badge', style: `background:${p.color}` }, String(i + 1)),
     el('span', { class: 't' }, el('span', { class: 'name' }, displayName(p)), el('span', { class: 'sub' }, outputLabel(p))),
     el('span', { class: `st ${st.cls}`, 'data-tip': st.tip }, st.node));
@@ -434,17 +436,62 @@ function projRow(p) {
 
 function renderProjList() {
   const ps = S.project.projectors;
-  // Gruppen in der Reihenfolge ihres ersten Projektors (im Gewölbe: Innenring, Außenring)
-  const groups = [...new Set(ps.map((p) => p.ring || ''))];
-  $('#projLists').replaceChildren(...groups.flatMap((g) => [
-    el('div', { class: 'side-label' }, groupLabel(g)),
-    el('div', { class: 'proj-list' }, ...ps.filter((p) => (p.ring || '') === g).map(projRow)),
-  ]));
+  S.project.groups = groupsOf(S.project);
+  $('#projLists').replaceChildren(...S.project.groups.map((g) => {
+    const members = ps.filter((p) => (p.ring || '') === g);
+    const editing = S.editGroup === g;
+    const label = editing
+      ? el('input', { class: 'side-label-edit', value: groupLabel(g), 'aria-label': 'Gruppenname',
+        onkeydown: (e) => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { S.editGroup = null; refresh(); } e.stopPropagation(); },
+        onblur: (e) => renameGroup(g, e.target.value) })
+      : el('div', { class: 'side-label', ondblclick: () => { S.editGroup = g; refresh(); } },
+        el('span', {}, groupLabel(g)),
+        el('span', { class: 'acts' },
+          iconBtn('edit', 'Gruppe umbenennen', () => { S.editGroup = g; refresh(); }),
+          members.length ? null : iconBtn('close', 'Leere Gruppe entfernen', () => { S.project.groups = S.project.groups.filter((x) => x !== g); markDirty(); refresh(); })));
+    return el('div', { class: 'proj-group', 'data-group': g,
+      ondragover: (e) => { if (!S.dragProj) return; e.preventDefault(); e.currentTarget.classList.add('drop'); },
+      ondragleave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove('drop'); },
+      ondrop: (e) => {
+        e.preventDefault(); e.currentTarget.classList.remove('drop');
+        const p = ps.find((x) => x.id === S.dragProj);
+        S.dragProj = null;
+        if (!p || (p.ring || '') === g) return;
+        pushUndo(); p.ring = g; markDirty(); refresh();
+        toast(`${displayName(p)} → ${groupLabel(g)}`);
+      } },
+      label,
+      members.length ? el('div', { class: 'proj-list' }, ...members.map(projRow)) : el('div', { class: 'proj-empty' }, 'Projektoren hierher ziehen'));
+  }));
+  if (S.editGroup != null) requestAnimationFrame(() => { const i = document.querySelector('.side-label-edit'); if (i && document.activeElement !== i) { i.focus(); i.select(); } });
   const add = $('#btnAddProj');
   add.hidden = ps.length >= MAX_PROJECTORS;
   const on = ps.filter((p) => p.enabled);
   const done = on.filter((p) => p.solution && isGood(S.results[p.id]?.quality)).length;
   $('#overall').replaceChildren(el('div', {}, `${done} von ${on.length} kalibriert`), el('div', { class: 'progress' }, el('i', { style: `width:${on.length ? (100 * done) / on.length : 0}%` })));
+}
+
+function renderGroupKey(t) {
+  const v = t.trim();
+  return v === tr('Innenring') || v === 'Innenring' ? 'innen' : v === tr('Außenring') || v === 'Außenring' ? 'außen' : v;
+}
+function renameGroup(g, text) {
+  S.editGroup = null;
+  const k = renderGroupKey(text);
+  if (!k || k === g) return refresh();
+  if (S.project.groups.includes(k)) { toast('Diese Gruppe gibt es schon.'); return refresh(); }
+  pushUndo();
+  for (const p of S.project.projectors) if ((p.ring || '') === g) p.ring = k;
+  S.project.groups = S.project.groups.map((x) => (x === g ? k : x));
+  markDirty(); refresh();
+}
+function addGroup() {
+  let n = 1;
+  while (S.project.groups.includes(`${tr('Gruppe')} ${n}`)) n++;
+  const g = `${tr('Gruppe')} ${n}`;
+  S.project.groups.push(g);
+  S.editGroup = g;
+  markDirty(); refresh();
 }
 
 function renderModes() {
@@ -616,7 +663,7 @@ function renderSetup() {
       r('Montage', select([['auto', 'Automatisch'], ['normal', 'Achse unter dem Bild'], ['flipped', 'Achse über dem Bild']], p.mountMode, (v) => set(() => { p.mountMode = v; }, true)),
         { tip: 'Kurzdistanz-Beamer projizieren komplett auf eine Seite der Objektivachse. Je nach Menü-Einstellung (Decke/Tisch) liegt sie über oder unter dem Bild. Automatisch prüft beides.' }),
     ),
-    S.project.projectors.length > 1 ? el('div', { class: 'act' }, el('span', { class: 'hint' }, S.confirmRemove === p.id ? 'Punkte, Feinkorrektur und Masken dieses Projektors gehen verloren.' : ''),
+    S.project.projectors.length > 1 ? el('div', { class: 'act' }, el('span', { class: 'hint' }, S.confirmRemove === p.id ? 'Punkte, Warp und Masken gehen verloren.' : ''),
       el('button', { class: `btn ${S.confirmRemove === p.id ? 'danger' : ''}`, id: 'btnRemoveProj', onclick: () => removeProjector(p) }, S.confirmRemove === p.id ? 'Wirklich entfernen' : 'Projektor entfernen …')) : null,
     more('setupAdv', 'TouchDesigner-Namen',
       group(
@@ -746,13 +793,13 @@ function statusCard(p) {
   } else {
     mark = String(n);
     head = n ? `Noch ${4 - n} ${4 - n === 1 ? 'Punkt' : 'Punkte'}` : 'Noch keine Punkte';
-    sub = 'Ab 4 Punkten steht die Position, 6 gut verteilte sind ideal.';
+    sub = 'Ab 4 Punkten gibt es eine Lösung.';
   }
-  const notes = (res.warnings || []).filter((w) => !(w.level === 'info' && /Vorläufige/.test(w.text)));
+  const notes = (res.warnings || []).filter((w) => !(w.level === 'info' && /^Vorläufig/.test(w.text)));
   return el('div', { class: `status ${cls}` },
     el('div', { class: 'head' }, el('div', { class: 'ic-wrap' }, mark), el('div', {}, el('b', {}, head), el('span', {}, sub))),
     el('div', { class: 'steps', 'aria-hidden': 'true' }, ...Array.from({ length: 6 }, (_, i) => el('i', { class: i < n ? 'done' : '' }))),
-    notes.length ? el('div', { class: 'notes' }, ...notes.map((w) => el('div', {}, w.level === 'warn' ? ic('alert', 14) : null, el('span', {}, w.text)))) : null);
+    notes.length ? el('div', { class: 'notes' }, ...notes.map((w) => el('div', {}, w.level === 'warn' ? ic('alert', 14) : null, el('span', {}, w.text), w.detail ? infoBtn(w.detail) : null))) : null);
 }
 
 function renderCalibrate() {
@@ -822,6 +869,18 @@ function onWarpPointer(uv, phase) {
   const w = ensureWarp(p);
   const [W, H] = p.resolution;
   const nu = uv[0] / W, nv = uv[1] / H;
+  if (phase === 'context') {
+    // Rechtsklick: freien Punkt löschen bzw. Gitterpunkt zurücksetzen
+    const ev = makeWarp(w);
+    const reach = Math.min(0.035, 0.45 / (Math.max(w.cols, w.rows) - 1));
+    const dist = (u, v) => Math.hypot((u - nu) * W / H, v - nv);
+    let pin = -1, grid = -1, bd = reach;
+    w.pins.forEach((q, i) => { const d = dist(q.at[0] + q.off[0], q.at[1] + q.off[1]); if (d < bd) { bd = d; pin = i; } });
+    if (pin < 0) w.offsets.forEach((o, i) => { if (Math.hypot(o[0], o[1]) < 1e-6) return; const [bu, bv] = gridBase(w, i); const f = ev.forward(bu, bv); const d = dist(f[0], f[1]); if (d < bd) { bd = d; grid = i; } });
+    if (pin >= 0) { S.activePin = pin; removeActivePin(p); toast('Punkt entfernt'); }
+    else if (grid >= 0) { pushUndo(); w.offsets[grid] = [0, 0]; selectWarp(null, null); markDirty(); refresh(); toast('Gitterpunkt zurückgesetzt'); }
+    return;
+  }
   if (phase === 'down') {
     const ev = makeWarp(w);
     const reach = Math.min(0.035, 0.45 / (Math.max(w.cols, w.rows) - 1));
@@ -900,11 +959,13 @@ function warpPane(p) {
   const folds = (gridChanged || pinCount) && minJacobian(w) < 0.05;
   return [
     folds ? el('div', { class: 'status bad' }, el('div', { class: 'head' }, el('div', { class: 'ic-wrap', html: icon('alert', 16) }),
-      el('div', {}, el('b', {}, 'Das Bild faltet sich'), el('span', {}, 'An einer Stelle ist die Korrektur so stark, dass sich das Bild überschlägt. Den Punkt etwas zurücknehmen oder die Reichweite vergrößern.')))) : null,
+      el('div', {}, el('b', {}, 'Das Bild faltet sich'), el('span', {}, 'Punkt zurücknehmen oder Reichweite erhöhen.')),
+      infoBtn('An einer Stelle ist die Korrektur so stark, dass sich das Bild überschlägt.'))) : null,
     el('div', { class: `status ${gridChanged || pinCount ? 'ok' : ''}` },
       el('div', { class: 'head' }, el('div', { class: 'ic-wrap', html: icon('target', 16) }),
         el('div', {}, el('b', {}, head),
-          el('span', {}, 'Gitterpunkte ziehen oder irgendwo ins Bild klicken, um einen freien Punkt zu setzen. Pfeiltasten: 1 Pixel, mit ⇧ 10 Pixel. Entf löscht den freien Punkt.')))),
+          el('span', {}, 'Ziehen oder ins Bild klicken. Rechtsklick entfernt.')),
+        infoBtn('Gitterpunkte ziehen oder irgendwo ins Bild klicken, um einen freien Punkt zu setzen. Pfeiltasten: 1 Pixel, mit ⇧ 10 Pixel. Rechtsklick oder Entf entfernt einen freien Punkt bzw. setzt einen Gitterpunkt zurück.'))),
     gtitle('Gitter'),
     group(
       r('Spalten × Zeilen', el('div', { style: 'display:flex;gap:6px;align-items:center' },
@@ -919,7 +980,12 @@ function warpPane(p) {
     ),
     gtitle('Freie Punkte'),
     group(
-      r('Gesetzt', el('span', { class: 'muted' }, pinCount ? String(pinCount) : 'keine')),
+      pinCount ? el('div', { class: 'pin-list' }, w.pins.map((pin, i) => el('div', { class: `pin-row ${S.activePin === i ? 'on' : ''}` },
+        el('button', { class: 'pin-sel', onclick: () => { selectWarp(null, i); refresh(); } },
+          el('span', { class: 'pin-dot' }), `Punkt ${i + 1}`,
+          el('span', { class: 'muted' }, `${nf(pin.off[0] * W, 0)} / ${nf(pin.off[1] * H, 0)} px`)),
+        iconBtn('close', 'Punkt entfernen', () => { S.activePin = i; removeActivePin(p); })))) 
+        : r('Gesetzt', el('span', { class: 'muted' }, 'keine'), { sub: 'Ins Bild klicken, um einen zu setzen.' }),
       r('Reichweite', rangeCtl(Math.round(w.radius * 100), 5, 80, 1, (v) => `${v} %`, null, (v) => { pushUndo(); w.radius = v / 100; markDirty(); refresh(); }),
         { tip: 'Wie weit ein freier Punkt das Bild um sich herum mitzieht, in Prozent der Bildhöhe. Kleiner Wert: sehr örtlich.' }),
     ),
@@ -944,21 +1010,36 @@ function renderGuide() {
   const p = active();
   const n = enabledPoints(p);
   const name = displayName(p);
-  if (!S.model) return coach('!', 'Kein 3D-Modell geladen', 'Unter „Einrichten“ eine OBJ-Datei wählen.');
+  if (!S.model) return coach('!', 'Kein 3D-Modell', 'Unter „Einrichten“ laden.');
   if (S.mode === 'blend') {
     const m = p.masks.find((x) => x.id === S.activeMaskId);
-    if (m && !m.closed) return coach(String(m.points.length), 'Maske zeichnen', 'Im Projektorbild rechts Eckpunkte setzen. Klick auf den ersten Punkt schließt die Form.');
-    if (!Object.keys(S.blendImages).length) return coach('3', 'Masken berechnen', 'Rechts auf „Masken berechnen“ klicken, sobald die Projektoren kalibriert sind.');
+    if (m && !m.closed) return coach(String(m.points.length), 'Maske zeichnen', 'Rechts Ecken setzen, ersten Punkt anklicken zum Schließen.');
+    if (!Object.keys(S.blendImages).length) return coach('3', 'Masken berechnen', 'Rechts, sobald alles kalibriert ist.');
     return g.replaceChildren();
   }
   if (S.mode !== 'calibrate' || warpEditing()) return g.replaceChildren();
-  if (S.pickCenter) return coach(ic('focus', 16), 'Bildmitte wählen', `Ungefähr dorthin klicken, wo die Mitte des Bildes von ${name} liegt.`);
+  if (S.pickCenter) return coach(ic('focus', 16), 'Bildmitte wählen', `Ungefähr die Bildmitte von ${name} anklicken.`);
   if (S.pendingRepick) return coach(String(S.activePointId), `Punkt ${S.activePointId} neu setzen`, 'Die richtige Stelle im Modell anklicken.');
-  if (n === 0 && !activePoint()) return coach('1', 'Markante Ecke im Modell anklicken', `Am besten weit außen im Bild von ${name} beginnen.`);
-  if (activePoint() && !p.solution) return coach(String(Math.max(n, 1)), 'Fadenkreuz an dieselbe Ecke der Decke schieben', 'Im Vorschaubild ziehen oder mit den Pfeiltasten. Danach die nächste Ecke anklicken.');
-  if (!p.solution) return coach(String(n + 1), 'Nächste Ecke anklicken', 'Möglichst weit weg von den bisherigen Punkten.');
-  if (n < 6 || !isGood(S.results[p.id]?.quality)) return coach(String(n + 1), 'Kanten an der Decke prüfen', 'Wo es nicht passt, einen weiteren Punkt setzen. Blaue Kreise mit + sind gute Stellen dafür.');
+  if (n === 0 && !activePoint()) return coach('1', 'Ecke im Modell anklicken', `Weit außen im Bild von ${name}.`);
+  if (activePoint() && !p.solution) return coach(String(Math.max(n, 1)), 'Fadenkreuz auf dieselbe Ecke schieben', 'Ziehen oder Pfeiltasten.');
+  if (!p.solution) return coach(String(n + 1), 'Nächste Ecke anklicken', 'Weit weg von den bisherigen.');
+  if (n < 6 || !isGood(S.results[p.id]?.quality)) return coach(String(n + 1), 'Kanten an der Decke prüfen', 'Passt es nicht: Punkt an einem blauen + setzen.');
   g.replaceChildren();
+}
+
+/** Legende im 3D-Bild: was die Farben bedeuten (nur wenn etwas davon zu sehen ist). */
+function renderLegend() {
+  const g = $('#legend3d'), p = active();
+  if (!S.model || S.mode !== 'calibrate' || warpEditing()) return g.replaceChildren();
+  const errs = (p.solution?.errors || []).filter((e) => typeof e.id === 'number' && p.points.find((x) => x.id === e.id)?.enabled);
+  const bad = errs.some((e) => e.error >= 8), warn = errs.some((e) => e.error >= 3 && e.error < 8);
+  const items = [];
+  if (p.solution) items.push(el('span', {}, el('i', { class: 'sw', style: `background:${p.color}` }), tr(`Bild von ${displayName(p)}`)));
+  if (bad) items.push(el('span', {}, el('i', { class: 'ring bad' }), 'Punkt passt nicht (ab 8 px)'));
+  if (warn) items.push(el('span', {}, el('i', { class: 'ring warn' }), 'Punkt ungenau (3–8 px)'));
+  if (p.solution && (enabledPoints(p) < 6 || !isGood(S.results[p.id]?.quality))) items.push(el('span', {}, el('i', { class: 'ring hint-ring' }), 'Vorschlag für weiteren Punkt'));
+  if (bad || warn) items.push(el('span', { class: 'hint' }, 'Punkt neu setzen oder abwählen'));
+  g.replaceChildren(...items);
 }
 
 // ---------- 3 Überblenden
@@ -994,7 +1075,7 @@ function renderBlend() {
     gtitle(`Eigene Masken · ${displayName(p)}`,
       iconBtn('plus', 'Neue Maske zeichnen', newMask, { id: 'btnNewMask' }),
       iconBtn('trash', 'Gewählte Maske löschen', deleteMask, { disabled: !m, id: 'btnDeleteMask' })),
-    maskRows.length ? el('div', { class: 'group plist' }, ...maskRows) : group(el('div', { class: 'empty-note' }, 'Mit + eine Maske anlegen und im Projektorbild oben zeichnen.')),
+    maskRows.length ? el('div', { class: 'group plist' }, ...maskRows) : group(el('div', { class: 'empty-note' }, 'Mit + eine Maske anlegen.')),
     m ? el('div', { style: 'height:8px' }) : null,
     m ? group(
       r('Name', input(m.name, (v) => { m.name = v; markDirty(); refresh(); })),
@@ -1505,6 +1586,26 @@ function handleKey(e) {
   }
   return false;
 }
+// ------------------------------------------------------------------ Projektorbild groß über der 3D-Ansicht
+function layoutPreviewBig() {
+  const pb = $('.preview-block');
+  if (!S.previewBig) { pb.style.cssText = ''; return; }
+  const r = $('.stage').getBoundingClientRect(), pad = 16, cap = 34;
+  const w = Math.min(r.width - 2 * pad, ((r.height - 2 * pad - cap) * 16) / 9);
+  Object.assign(pb.style, { left: `${r.left + (r.width - w) / 2}px`, top: `${r.top + pad}px`, width: `${w}px` });
+}
+function setPreviewBig(on) {
+  S.previewBig = on;
+  document.body.classList.toggle('preview-big', on);
+  const b = $('#btnPreviewBig');
+  b.setAttribute('aria-pressed', String(on));
+  b.dataset.tip = on ? 'Wieder klein (Esc)' : 'Groß anzeigen (Esc schließt)';
+  b.innerHTML = icon(on ? 'shrink' : 'expand', 16);
+  layoutPreviewBig();
+}
+$('#btnPreviewBig').onclick = () => setPreviewBig(!S.previewBig);
+window.addEventListener('resize', () => { if (S.previewBig) layoutPreviewBig(); });
+
 window.addEventListener('keydown', (e) => {
   if (!$('#tuneSheet').classList.contains('hidden')) { if (e.key === 'Escape') tuning.close(); return; }
   if (!$('#camSheet').classList.contains('hidden')) { if (e.key === 'Escape') camcal.close(); return; }
@@ -1512,6 +1613,7 @@ window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeOnboarding(false);
     return;
   }
+  if (e.key === 'Escape' && S.previewBig && S.activeHandle == null && S.activePin == null && !document.querySelector('.side-label-edit')) { setPreviewBig(false); return; }
   const ae = document.activeElement;
   const tag = ae?.tagName;
   if ((tag === 'INPUT' && ae.type !== 'checkbox') || tag === 'SELECT' || tag === 'TEXTAREA') return;
@@ -1737,7 +1839,7 @@ const ART = {
 };
 
 let obPage = 0;
-const OB_PAGES = 3;
+const OB_PAGES = 4;
 function onboardingSeen() { try { return localStorage.getItem('kalib.onboarded') === '1'; } catch { return false; } }
 function showOnboarding(page = 0) {
   obPage = page;
@@ -1765,16 +1867,18 @@ function renderOnboarding() {
       feat('projector', 'Ausgabe', 'Testbilder auf den Projektoren zeigen oder an TouchDesigner übergeben.'),
     ],
     () => [
-      el('h1', { id: 'obTitle', style: 'margin-top:8px' }, 'Womit möchtest du starten?'),
-      el('p', { class: 'lead' }, 'Die Demo ist eine Gewölbedecke mit acht Projektoren, gut zum Ausprobieren. Alles lässt sich später unter „Einrichten“ ändern.'),
+      el('h1', { id: 'obTitle' }, 'Womit möchtest du starten?'),
+      el('p', { class: 'lead' }, 'Die Demo ist eine Gewölbedecke mit acht Projektoren.'),
       el('div', { class: 'choices' },
         el('button', { class: `choice ${S.model && isDemo() ? 'on' : ''}`, id: 'obDemo', onclick: async () => { if (!(S.model && isDemo())) await loadDemo(); renderOnboarding(); } },
           el('div', { class: 'ci', html: icon('model', 26) }), el('b', {}, 'Mit der Demo'), el('span', {}, 'Gewölbedecke, 8 Projektoren')),
         el('button', { class: `choice ${S.model && !isDemo() ? 'on' : ''}`, id: 'obOwn', onclick: async () => { await chooseModel(); renderOnboarding(); } },
           el('div', { class: 'ci', html: icon('file', 26) }), el('b', {}, 'Eigenes 3D-Modell'), el('span', {}, S.model && !isDemo() ? S.project.model.name : 'OBJ-Datei wählen …'))),
-      el('div', { style: 'height:14px' }),
+    ],
+    () => [
+      el('h1', { id: 'obTitle' }, 'Bildschirme zuordnen'),
+      el('p', { class: 'lead' }, 'Welcher Grafikkarten-Ausgang speist welche Projektoren? Geht auch später unter „Einrichten“.'),
       el('div', { class: 'group' }, ...outputRows()),
-      el('p', { class: 'hint', style: 'text-align:center;margin-top:8px' }, 'Projektor 1–4 hängen an HDMI A, Projektor 5–8 an HDMI B, jeweils ein Viertel des Bildes.'),
     ],
     () => [
       el('h1', { id: 'obTitle', style: 'margin-top:8px' }, 'So setzt du einen Punkt'),
@@ -1790,7 +1894,7 @@ function renderOnboarding() {
     el('div', { class: 'body' }, ...pages[obPage]()),
     el('div', { class: 'foot' },
       el('div', { class: 'dots' }, ...Array.from({ length: OB_PAGES }, (_, i) => el('i', { class: i === obPage ? 'on' : '' }))),
-      !last ? el('button', { class: 'btn', style: 'background:none;box-shadow:none', onclick: () => closeOnboarding(false), id: 'obSkip' }, 'Überspringen') : null,
+      !last ? el('button', { class: 'btn ghost', onclick: () => closeOnboarding(false), id: 'obSkip' }, 'Überspringen') : null,
       obPage > 0 ? el('button', { class: 'btn', onclick: () => { obPage--; renderOnboarding(); } }, 'Zurück') : null,
       el('button', { class: 'btn primary', id: 'obNext', disabled: obPage === 1 && !S.model, onclick: () => { if (last) closeOnboarding(true); else { obPage++; renderOnboarding(); } } }, last ? `Mit ${displayName(S.project.projectors[0])} beginnen` : 'Weiter'))));
   $('#obNext').focus();
@@ -1826,6 +1930,7 @@ $('#btnUndo').onclick = undo;
 $('#btnRedo').onclick = redo;
 $('#btnHelp').onclick = toggleHelp;
 $('#btnOutputs').onclick = () => toggleOutputs();
+$('#btnAddGroup').onclick = () => addGroup();
 $('#btnAddProj').onclick = () => {
   const p = addProjector(S.project);
   if (!p) return toast(`Höchstens ${MAX_PROJECTORS} Projektoren.`);

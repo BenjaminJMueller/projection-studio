@@ -42,7 +42,10 @@
   <div class="layout">
     <nav class="sidebar" aria-label="Projektoren">
       <div id="projLists"></div>
-      <button class="side-add" id="btnAddProj"><i data-icon="plus" data-size="14"></i><span>Projektor hinzufügen</span></button>
+      <div class="side-adds">
+        <button class="side-add" id="btnAddProj" data-tip="Projektor hinzufügen"><i data-icon="plus" data-size="14"></i><span>Projektor</span></button>
+        <button class="side-add" id="btnAddGroup" data-tip="Neue Gruppe. Projektoren lassen sich per Ziehen zwischen Gruppen verschieben."><i data-icon="plus" data-size="14"></i><span>Gruppe</span></button>
+      </div>
       <div class="side-foot" id="overall"></div>
     </nav>
 
@@ -62,6 +65,7 @@
         <button class="tool" id="btnFocus" data-tip="Ansicht zentrieren" aria-label="Ansicht zentrieren"><i data-icon="focus"></i></button>
       </div>
       <div id="guide" class="coach" role="status"></div>
+      <div id="legend3d" class="legend3d" aria-label="Legende"></div>
     </main>
 
     <aside class="inspector" aria-label="Inspektor">
@@ -69,6 +73,7 @@
         <div class="preview-wrap" id="previewWrap">
           <canvas id="preview3d"></canvas>
           <canvas id="preview2d" aria-label="Projektorbild"></canvas>
+          <button class="tool preview-big-btn" id="btnPreviewBig" data-tip="Groß anzeigen (Esc schließt)" aria-label="Groß anzeigen" aria-pressed="false"><i data-icon="expand"></i></button>
         </div>
         <div class="preview-caption" id="previewCaption"></div>
       </div>
