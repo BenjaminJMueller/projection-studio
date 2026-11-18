@@ -106,8 +106,8 @@ const status = () => C.win.evaluate(() => window.__app.S.cluster.status || {});
 let st = {};
 for (let i = 0; i < 40; i++) { st = await status(); if (st.connected && st.offset != null) break; await wait(250); }
 note(`Vor der Freigabe: ${JSON.stringify({ connected: st.connected, problem: st.problem, offset: st.offset })}`);
-await C.win.screenshot({ path: path.join(outDir, 'mac-1-ausgaberechner-vorher.png') });
-await M.win.screenshot({ path: path.join(outDir, 'mac-1-hauptrechner-vorher.png') });
+await C.win.screenshot({ path: path.join(outDir, 'mac-1-ausgaberechner-vorher.png'), timeout: 8000 }).catch(() => {});
+await M.win.screenshot({ path: path.join(outDir, 'mac-1-hauptrechner-vorher.png'), timeout: 8000 }).catch(() => {});
 
 // 3. Freigabe wie der Knopf „Freigeben …“ (hier mit sudo statt Passwortabfrage)
 const fwNow = await M.win.evaluate(async () => window.api.clusterFirewall());
@@ -140,8 +140,9 @@ if (cl.length) {
 const problem = await M.win.evaluate(() => window.__app.S.cluster.problem);
 note(`Hauptrechner-Broadcast: ${problem === 'localNetwork' ? 'durch „Lokales Netzwerk“ gesperrt (Hinweis wird angezeigt)' : 'ok'}`);
 await M.win.locator('#paneSetup .seg-role').scrollIntoViewIfNeeded().catch(() => {});
-await M.win.screenshot({ path: path.join(outDir, 'mac-2-hauptrechner.png') });
-await C.win.screenshot({ path: path.join(outDir, 'mac-2-ausgaberechner.png') });
+await M.win.screenshot({ path: path.join(outDir, 'mac-2-hauptrechner.png'), timeout: 8000 }).catch(() => note('(Bildschirmfoto Hauptrechner nicht möglich)'));
+// das Fenster des Ausgaberechners liegt hinter seinem Vollbild-Ausgang und zeichnet dann nicht
+await C.win.screenshot({ path: path.join(outDir, 'mac-2-ausgaberechner.png'), timeout: 8000 }).catch(() => note('(Fenster des Ausgaberechners verdeckt vom Vollbild-Ausgang, kein Bildschirmfoto)'));
 note(`Lokales Netzwerk (Systemprotokoll):\n\n\`\`\`\n${sh('log', ['show', '--last', '5m', '--style', 'compact', '--predicate', 'subsystem == "com.apple.networkextension" AND eventMessage CONTAINS "LocalNetwork"']).split('\n').slice(-12).join('\n')}\n\`\`\``);
 sh('screencapture', ['-x', path.join(outDir, 'mac-3-bildschirm-ende.png')]);
 clicking = false;
