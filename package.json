@@ -30,6 +30,7 @@
   "build": {
     "appId": "de.pixelcampus.projection-studio",
     "afterPack": "scripts/mac-afterpack.cjs",
+    "afterSign": "scripts/mac-aftersign.cjs",
     "productName": "Projection Studio",
     "files": [
       "src/**/*",
