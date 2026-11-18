@@ -100,7 +100,7 @@ If one computer's outputs are not enough, other computers on the same network ca
 
 The project, masks and every change go live to the output computers. Model and videos are copied once (cache in the app's user folder); until then videos are streamed over the network. Playback runs on a shared clock: each output computer continuously measures its clock offset to the main computer (like NTP) and aligns its videos to it.
 
-Limits: without hardware genlock the computers can be up to about one frame apart, which can be visible at blend edges with fast motion. Sound only comes from the main computer. Wired LAN is recommended. The app uses TCP 47810, UDP 47811 and TCP 47812 and only accepts connections from the local network, without a password. On first start the firewall on Windows and macOS asks about incoming connections. So far only tested with simulated computers over loopback.
+Limits: without hardware genlock the computers can be up to about one frame apart, which can be visible at blend edges with fast motion. Sound only comes from the main computer. Wired LAN is recommended. The app uses TCP 47810, UDP 47811 and TCP 47812 and only accepts connections from the local network, without a password. On first start macOS asks on each computer whether the app may find devices on the local network: choose *Allow* (later under System Settings → Privacy & Security → Local Network). If the macOS firewall is on, the main computer shows an *Allow …* button. On Windows the firewall asks on first start. After an app update macOS may ask again, because the app is not notarised by Apple. Tested on Linux and on a macOS 26 machine at GitHub (two app instances over the LAN address, firewall on), not yet with two separate computers.
 
 ## Features and limits
 
@@ -132,7 +132,7 @@ Known limitations:
 - Camera calibration and room tuning are tested with simulated camera images and recordings, not yet on the real installation.
 - Room tuning with a smartphone: phone microphones are inaccurate below about 100 Hz and above 10 kHz, so only the range in between is corrected. The phone asks once about the self-signed certificate when the page is first opened.
 - Flat screens also need a (simple) OBJ model.
-- Multiple computers: without genlock up to about one frame of offset between computers, sound only from the main computer. Not yet tried with real computers on a network.
+- Multiple computers: without genlock up to about one frame of offset between computers, sound only from the main computer. Not yet tried with two separate computers on a network.
 
 ## Calibration with a camera
 

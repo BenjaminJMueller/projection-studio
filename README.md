@@ -98,7 +98,7 @@ Reichen die Ausgänge eines Rechners nicht, übernehmen weitere Rechner im selbe
 
 Projekt, Masken und jede Änderung gehen live an die Ausgaberechner. Modell und Videos werden einmal kopiert (Zwischenspeicher im Benutzerordner der App), bis dahin werden Videos über das Netz gestreamt. Die Wiedergabe läuft über eine gemeinsame Uhr: Jeder Ausgaberechner misst laufend den Versatz seiner Uhr zum Hauptrechner (wie NTP) und gleicht seine Videos darauf ab.
 
-Grenzen: Ohne Hardware-Genlock liegen die Rechner bis zu etwa ein Bild auseinander, an Überblendkanten mit schneller Bewegung kann man das sehen. Ton kommt nur vom Hauptrechner. Kabel-LAN wird empfohlen. Die App nutzt TCP 47810, UDP 47811 und TCP 47812 und nimmt nur Verbindungen aus dem lokalen Netz an, ohne Passwort. Beim ersten Start fragt die Firewall unter Windows und macOS nach eingehenden Verbindungen. Bisher nur mit simulierten Rechnern über Loopback getestet.
+Grenzen: Ohne Hardware-Genlock liegen die Rechner bis zu etwa ein Bild auseinander, an Überblendkanten mit schneller Bewegung kann man das sehen. Ton kommt nur vom Hauptrechner. Kabel-LAN wird empfohlen. Die App nutzt TCP 47810, UDP 47811 und TCP 47812 und nimmt nur Verbindungen aus dem lokalen Netz an, ohne Passwort. Beim ersten Start fragt macOS auf jedem Rechner, ob die App Geräte im lokalen Netzwerk finden darf: *Erlauben* wählen (später unter Systemeinstellungen → Datenschutz & Sicherheit → Lokales Netzwerk). Ist die macOS-Firewall an, zeigt der Hauptrechner einen Knopf *Freigeben …*. Unter Windows fragt die Firewall beim ersten Start. Nach einem Update der App kann macOS erneut fragen, weil die App nicht von Apple beglaubigt ist. Getestet unter Linux und auf einem macOS-26-Rechner bei GitHub (zwei App-Instanzen über die LAN-Adresse, Firewall an), noch nicht mit zwei getrennten Rechnern.
 
 ## Funktionsumfang und Grenzen
 
@@ -130,7 +130,7 @@ Bekannte Grenzen:
 - Kamera-Kalibrierung und Raumeinmessung sind mit simulierten Kamerabildern bzw. Aufnahmen getestet, an der echten Installation noch nicht.
 - Raumeinmessung mit dem Smartphone: Handy-Mikrofone sind unter etwa 100 Hz und über 10 kHz ungenau, korrigiert wird deshalb nur dazwischen. Das Handy fragt beim ersten Öffnen einmal nach dem selbst erstellten Zertifikat.
 - Auch für flache Leinwände braucht es ein (einfaches) OBJ-Modell.
-- Mehrere Rechner: ohne Genlock bis zu etwa ein Bild Versatz zwischen den Rechnern, Ton nur vom Hauptrechner. Mit echten Rechnern im Netz noch nicht erprobt.
+- Mehrere Rechner: ohne Genlock bis zu etwa ein Bild Versatz zwischen den Rechnern, Ton nur vom Hauptrechner. Mit zwei getrennten Rechnern im Netz noch nicht erprobt.
 
 ## Kalibrierung mit Kamera
 
