@@ -4,12 +4,12 @@
 // Aufruf: node test/e2e/mac-network.mjs <Pfad zu Projection Studio.app> [ausgabeordner]
 // Schreibt ein Protokoll nach <ausgabeordner>/mac-network.md und endet mit 1, wenn etwas Wesentliches fehlt.
 import { createRequire } from 'node:module';
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 const require = createRequire(import.meta.url);
-const { _electron: electron } = require('playwright');
+const { chromium } = require('playwright');
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
 const appPath = path.resolve(process.argv[2]);
 const outDir = process.argv[3] || path.join(root, 'test-output');
@@ -18,7 +18,7 @@ fs.mkdirSync(outDir, { recursive: true });
 const log = [], fails = [];
 const note = (s) => { console.log(s); log.push(`- ${s}`); };
 const check = (ok, s) => { note(`${ok ? '✅' : '❌'} ${s}`); if (!ok) fails.push(s); };
-const sh = (cmd, args) => { try { return execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(); } catch (e) { return `${e.stdout || ''}${e.stderr || ''}`.trim(); } };
+const sh = (cmd, args) => { const r = spawnSync(cmd, args, { encoding: 'utf8' }); return `${r.stdout || ''}${r.stderr || ''}`.trim(); };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const FW = '/usr/libexec/ApplicationFirewall/socketfilterfw';
 
@@ -31,7 +31,7 @@ const ours = uu(exe), theirs = uu(stock);
 note(`UUID App: ${ours.join(', ')} · Electron: ${theirs.join(', ')}`);
 check(ours.length > 0 && ours.every((u) => !theirs.includes(u)), 'App hat eine eigene Mach-O-UUID');
 const sig = sh('codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath]);
-note(`codesign: ${sig.split('\n').slice(-2).join(' / ')}`);
+note(`codesign: ${sig.split('\n').join(' / ')} · ${sh('codesign', ['-dv', appPath]).split('\n').filter((l) => /Identifier|Signature/.test(l)).join(' / ')}`);
 check(/valid on disk/.test(sig) && /satisfies its Designated Requirement/.test(sig), 'Signatur des ganzen Bundles gültig (ad hoc)');
 const plist = sh('/usr/libexec/PlistBuddy', ['-c', 'Print :NSLocalNetworkUsageDescription', path.join(appPath, 'Contents/Info.plist')]);
 check(plist.length > 10 && !/Does Not Exist/.test(plist), 'NSLocalNetworkUsageDescription im Info.plist');
@@ -41,14 +41,45 @@ sh('sudo', [FW, '--setglobalstate', 'on']);
 sh('sudo', [FW, '--remove', appPath]);
 note(`Firewall: ${sh(FW, ['--getglobalstate'])} · App: ${sh(FW, ['--getappblocked', appPath])}`);
 
+// Über LaunchServices starten (wie per Doppelklick im Finder). Aus einem Skript gestartete Programme
+// rechnet macOS bei „Lokales Netzwerk“ dem aufrufenden Programm zu (hier node, „a.out“), das nie gefragt
+// werden kann. Gesteuert wird die App dann über das DevTools-Protokoll.
+let nextPort = 9301;
 async function launch(name) {
-  const userData = fs.mkdtempSync(`/tmp/ps-${name}-`);
-  const app = await electron.launch({ executablePath: exe, args: [`--user-data-dir=${userData}`] });
-  const win = await app.firstWindow();
-  await win.setViewportSize({ width: 1500, height: 940 }).catch(() => {});
+  const userData = fs.mkdtempSync(`/tmp/ps-${name}-`), port = nextPort++;
+  sh('open', ['-n', '-a', appPath, '--args', `--user-data-dir=${userData}`, `--remote-debugging-port=${port}`]);
+  let browser = null;
+  for (let i = 0; i < 60 && !browser; i++) { try { browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`); } catch { await wait(500); } }
+  if (!browser) throw new Error(`${name}: keine DevTools-Verbindung`);
+  const pages = () => browser.contexts().flatMap((c) => c.pages());
+  let win = null;
+  for (let i = 0; i < 60 && !win; i++) { win = pages().find((p) => p.url().includes('renderer/index.html')); if (!win) await wait(500); }
   await win.waitForFunction(() => window.__app?.ready, null, { timeout: 60000 });
   await win.evaluate(() => window.__app.closeOnboarding?.(false));
-  return { app, win };
+  return { win, pages, close: () => sh('pkill', ['-f', `user-data-dir=${userData}`]) };
+}
+/** Abfrage „Lokales Netzwerk“ suchen und auf „Erlauben“ klicken, wie es ein Mensch beim ersten Start tut. */
+function clickAllow() {
+  const script = `tell application "System Events"
+  set out to ""
+  repeat with pn in {"UserNotificationCenter", "CoreServicesUIAgent", "Projection Studio", "SecurityAgent"}
+    if exists process pn then
+      tell process pn
+        repeat with w in windows
+          repeat with b in buttons of w
+            set n to name of b
+            if n is in {"Allow", "Erlauben", "OK"} then
+              click b
+              set out to out & pn & ":" & n & " "
+            end if
+          end repeat
+        end repeat
+      end tell
+    end if
+  end repeat
+  return out
+end tell`;
+  return sh('osascript', ['-e', script]);
 }
 const M = await launch('haupt');
 await M.win.evaluate(() => window.__app.setClusterRole('master'));
@@ -60,9 +91,14 @@ check(fw1 && fw1.on === true, 'App erkennt die eingeschaltete Firewall');
 
 const lan = Object.values(os.networkInterfaces()).flat().find((n) => n && (n.family === 'IPv4' || n.family === 4) && !n.internal)?.address;
 note(`LAN-Adresse: ${lan}`);
+// Abfragen „Lokales Netzwerk“ im Hintergrund bestätigen und protokollieren
+const clicks = [];
+let clicking = true;
+(async () => { while (clicking) { const r = clickAllow(); if (r && !/error|nicht|not allowed/i.test(r)) clicks.push(r); else if (r && clicks.length < 3) clicks.push(`(${r.slice(0, 120)})`); await wait(1500); } })();
+sh('screencapture', ['-x', path.join(outDir, 'mac-0-bildschirm-start.png')]);
 const C = await launch('ausgabe');
 await C.win.evaluate(() => window.__app.setClusterRole('client'));
-await C.win.waitForTimeout(4000); // findet der Ausgaberechner den Hauptrechner per Broadcast?
+await wait(4000); // findet der Ausgaberechner den Hauptrechner per Broadcast?
 const found = await C.win.evaluate(() => (window.__app.S.cluster.masters || []).map((m) => m.address));
 note(`Per Broadcast gefunden: ${JSON.stringify(found)}`);
 if (!found.length) await C.win.evaluate((a) => window.api.clusterConnect(a), lan);
@@ -94,7 +130,7 @@ check(cl.length === 1, 'Hauptrechner zeigt den Ausgaberechner');
 if (cl.length) {
   await M.win.evaluate((c) => { const { S, refresh, toggleOutputs } = window.__app; const o = S.project.outputs.find((x) => x.id === 'A'); o.host = c.id; o.hostName = c.name; o.hostDisplay = c.displays[0]; refresh(); return toggleOutputs(true); }, cl[0]);
   let wins = 0;
-  for (let i = 0; i < 60; i++) { wins = C.app.windows().length; if (wins > 1) break; await wait(250); }
+  for (let i = 0; i < 60; i++) { wins = C.pages().length; if (wins > 1) break; await wait(250); }
   check(wins > 1, 'Ausgaberechner öffnet den zugewiesenen Ausgang');
   await wait(4000);
   const files = (await status()).files;
@@ -107,8 +143,11 @@ await M.win.locator('#paneSetup .seg-role').scrollIntoViewIfNeeded().catch(() =>
 await M.win.screenshot({ path: path.join(outDir, 'mac-2-hauptrechner.png') });
 await C.win.screenshot({ path: path.join(outDir, 'mac-2-ausgaberechner.png') });
 note(`Lokales Netzwerk (Systemprotokoll):\n\n\`\`\`\n${sh('log', ['show', '--last', '5m', '--style', 'compact', '--predicate', 'subsystem == "com.apple.networkextension" AND eventMessage CONTAINS "LocalNetwork"']).split('\n').slice(-12).join('\n')}\n\`\`\``);
-await C.app.close();
-await M.app.close();
+sh('screencapture', ['-x', path.join(outDir, 'mac-3-bildschirm-ende.png')]);
+clicking = false;
+note(`Abfragen bestätigt: ${JSON.stringify(clicks)}`);
+C.close();
+M.close();
 sh('sudo', [FW, '--setglobalstate', 'off']);
 
 fs.writeFileSync(path.join(outDir, 'mac-network.md'), `# Verbund auf macOS\n\n${log.join('\n')}\n`);
