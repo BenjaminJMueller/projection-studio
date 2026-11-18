@@ -620,6 +620,7 @@ async function setClusterRole(role) {
   if (outputsOn()) await toggleOutputs(false);
   S.cluster = { ...S.cluster, ...(await api.clusterSetRole(role)) };
   S.remoteOn = false;
+  if (role === 'master') checkFirewall();
   refresh();
   renderClusterSheet();
 }
@@ -634,6 +635,27 @@ function clusterStatusText(st) {
   return parts.join(' · ') || 'verbunden';
 }
 
+/** macOS: Firewall des Hauptrechners prüfen (nur in der fertigen App, kostet ein paar ms). */
+async function checkFirewall() {
+  S.cluster.firewall = await api.clusterFirewall();
+  if (S.mode === 'setup') refresh();
+}
+
+/** Hinweise, wenn macOS den Verbund sperrt. kind: localNetwork | firewall | timeout | refused | unreachable */
+function clusterHint(kind) {
+  const H = {
+    localNetwork: ['macOS sperrt das lokale Netz', 'Systemeinstellungen → Datenschutz & Sicherheit → Lokales Netzwerk → „Projection Studio“ einschalten. Danach die App neu starten.', 'Einstellungen öffnen', () => api.localNetworkSettings()],
+    firewall: ['Firewall blockiert Ausgaberechner', 'Die macOS-Firewall lässt keine Verbindungen zu dieser App zu. „Freigeben“ trägt die App als erlaubt ein (fragt nach dem Admin-Passwort).', 'Freigeben …', async () => { S.cluster.firewall = await api.clusterFirewallAllow(); refresh(); if (S.cluster.firewall && !S.cluster.firewall.ok) toast('Firewall-Freigabe hat nicht geklappt.'); }],
+    timeout: ['Hauptrechner antwortet nicht', 'Meist blockiert dort die Firewall. Am Hauptrechner unter Einrichten → Mehrere Rechner auf „Freigeben“ klicken. Sonst Adresse und Netz prüfen.'],
+    refused: ['Verbindung abgelehnt', 'Unter dieser Adresse läuft die App nicht als Hauptrechner.'],
+    unreachable: ['Hauptrechner nicht erreichbar', 'Adresse und Netzwerkkabel prüfen.'],
+  }[kind];
+  if (!H) return null;
+  return el('div', { class: 'status bad cl-hint', 'data-hint': kind }, el('div', { class: 'head' }, el('div', { class: 'ic-wrap', html: icon('alert', 16) }),
+    el('div', {}, el('b', {}, H[0]), el('span', {}, H[1])),
+    H[2] ? el('button', { class: 'btn', onclick: H[3] }, H[2]) : null));
+}
+
 function clusterGroup() {
   const c = S.cluster;
   const rows = [
@@ -641,6 +663,9 @@ function clusterGroup() {
       ...[['solo', 'Nur dieser'], ['master', 'Hauptrechner'], ['client', 'Ausgaberechner']].map(([k, l]) => el('button', { class: c.role === k ? 'on' : '', 'data-role': k, onclick: () => setClusterRole(k) }, l)))),
   ];
   if (c.role === 'master') {
+    if (c.problem === 'localNetwork') rows.push(clusterHint('localNetwork'));
+    if (c.firewall && !c.firewall.ok) rows.push(clusterHint('firewall'));
+    else if (c.firewall?.on) rows.push(r('macOS-Firewall', el('span', { class: 'muted' }, 'an, App freigegeben')));
     if (!c.clients.length) rows.push(el('div', { class: 'empty-note' }, 'Noch kein Ausgaberechner verbunden.'));
     for (const cl of c.clients) {
       rows.push(el('div', { class: 'r' }, el('div', { class: 'lbl', style: 'gap:10px' }, el('span', { class: 'led on' }),
@@ -664,6 +689,7 @@ function renderClusterSheet() {
   sh.replaceChildren(el('div', { class: 'sheet cluster' },
     el('div', { class: 'cl-head' }, el('div', { class: 'ci', html: icon('monitor', 28) }),
       el('div', {}, el('h1', {}, 'Ausgaberechner'), el('p', { class: 'lead' }, conn ? `Verbunden mit ${st.masterName || st.address}` : st.address ? `Verbinde mit ${st.address} …` : 'Suche Hauptrechner im Netz …'))),
+    !conn && st.problem ? clusterHint(st.problem) : null,
     el('div', { class: 'group' },
       r('Hauptrechner', el('span', { class: `cl-state ${conn ? 'ok' : ''}` }, el('span', { class: `led ${conn ? 'on' : ''}` }), conn ? `${st.masterName} · ${st.address}` : 'nicht verbunden')),
       r('Uhrabgleich', el('span', { class: 'muted' }, st.offset != null ? `±${nf(Math.max(0.1, st.error), 1)} ms` : '–'), { tip: 'Abweichung der Uhr zum Hauptrechner. Darüber starten alle Rechner die Videos gleichzeitig. Ohne Genlock bleibt bis zu etwa ein Bild Versatz.' }),
@@ -1676,6 +1702,9 @@ api.onClusterEvent((ev) => {
     S.cluster.status = ev.status;
     S.cluster.masters = ev.masters;
     if (!document.activeElement?.closest?.('#clusterSheet')) renderClusterSheet();
+  } else if (ev.type === 'problem') {
+    S.cluster.problem = ev.problem;
+    if (S.mode === 'setup') refresh();
   } else if (ev.type === 'error') {
     toast(`Verbund: ${ev.error}`);
   }
@@ -2183,6 +2212,7 @@ api.onLangChanged((l) => applyLang(l));
   });
   await syncOpenOutputs();
   S.cluster = { ...S.cluster, ...(await api.clusterGet()) };
+  if (isMaster()) checkFirewall();
   refresh();
   renderClusterSheet();
   if (!onboardingSeen() && S.cluster.role !== 'client') showOnboarding(0);

@@ -54,6 +54,26 @@ jobs:
             dist/*.exe
           if-no-files-found: error
 
+  # Mehrrechner-Verbund auf echtem macOS: eigene Programm-UUID, Signatur, Firewall, Verbindung über LAN.
+  # Blockiert das Release nicht, das Ergebnis steht in der Zusammenfassung des Laufs.
+  mac-network:
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: App bauen (nur Ordner, arm64)
+        run: npx electron-builder --mac dir --arm64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Verbund-Test mit Firewall
+        run: node test/e2e/mac-network.mjs "dist/mac-arm64/Projection Studio.app" test-output
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: mac-network, path: test-output/ }
+
   # Direkter Download: jeder Push auf main ersetzt das Release „Neueste Version“,
   # ein Tag v* legt zusätzlich ein festes Release mit dieser Versionsnummer an.
   release:

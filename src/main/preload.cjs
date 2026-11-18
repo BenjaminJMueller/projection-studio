@@ -45,5 +45,8 @@ contextBridge.exposeInMainWorld('api', {
   clusterConnect: (address) => ipcRenderer.invoke('cluster:connect', address),
   clusterOutputs: (on) => ipcRenderer.invoke('cluster:outputs', on),
   clusterClearCache: () => ipcRenderer.invoke('cluster:clearCache'),
+  clusterFirewall: () => ipcRenderer.invoke('cluster:firewall'),
+  clusterFirewallAllow: () => ipcRenderer.invoke('cluster:firewallAllow'),
+  localNetworkSettings: () => ipcRenderer.invoke('cluster:localNetworkSettings'),
   onClusterEvent: on('cluster:event'),
 });

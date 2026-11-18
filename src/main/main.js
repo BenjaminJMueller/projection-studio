@@ -162,9 +162,35 @@ const clusterInfo = () => ({
   role: clusterCfg.role, id: clusterCfg.id, name: os.hostname().replace(/\.local$/, ''),
   clients: clusterCfg.role === 'master' ? cluster?.clients() || [] : [],
   status: clusterCfg.role === 'client' ? cluster?.status() : null,
+  problem: clusterCfg.role === 'master' ? cluster?.problem() : null,
+  mac: isMac,
   masters: clusterCfg.role === 'client' ? cluster?.masters() || [] : [],
 });
 ipcMain.handle('cluster:get', () => clusterInfo());
+
+// macOS-Firewall: eingehende Verbindungen zum Hauptrechner (TCP 47810/47812) brauchen eine Freigabe
+const FW = '/usr/libexec/ApplicationFirewall/socketfilterfw';
+const appBundle = () => path.resolve(process.execPath, '..', '..', '..');
+const fwRun = (args) => new Promise((resolve) => execFile(FW, args, { timeout: 5000 }, (_e, out) => resolve(String(out || ''))));
+async function firewallStatus() {
+  if (!isMac || !app.isPackaged) return null;
+  const [g, b, a] = await Promise.all([fwRun(['--getglobalstate']), fwRun(['--getblockall']), fwRun(['--getappblocked', appBundle()])]);
+  const on = /enabled/i.test(g) && !/disabled/i.test(g);
+  const blockAll = /enabled/i.test(b) && !/disabled/i.test(b);
+  const app2 = /permitted|allow/i.test(a) ? 'allowed' : /block/i.test(a) ? 'blocked' : 'unknown';
+  return { on, blockAll, app: app2, ok: !on || (!blockAll && app2 === 'allowed') };
+}
+ipcMain.handle('cluster:firewall', () => firewallStatus());
+ipcMain.handle('cluster:firewallAllow', async () => {
+  const st = await firewallStatus();
+  if (!st || st.ok) return st;
+  const q = (x) => `'${x.replace(/'/g, "'\\''")}'`;
+  const cmd = [st.blockAll ? `${FW} --setblockall off` : null, `${FW} --add ${q(appBundle())}`, `${FW} --unblockapp ${q(appBundle())}`].filter(Boolean).join('; ');
+  const script = `do shell script "${cmd.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}" with administrator privileges`;
+  await new Promise((resolve) => execFile('/usr/bin/osascript', ['-e', script], () => resolve()));
+  return firewallStatus();
+});
+ipcMain.handle('cluster:localNetworkSettings', () => shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork'));
 ipcMain.handle('cluster:setRole', async (_e, role) => {
   if (!['solo', 'master', 'client'].includes(role)) return clusterInfo();
   for (const id of [...outputWins.keys()]) closeOutput(id);

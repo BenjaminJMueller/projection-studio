@@ -214,9 +214,23 @@ export function startMaster({ name = os.hostname(), onEvent = () => {}, ports = 
   const udp = dgram.createSocket({ type: 'udp4', reuseAddr: true });
   udp.on('error', () => {});
   udp.bind(() => { try { udp.setBroadcast(true); } catch { /* ohne Broadcast: Adresse von Hand eingeben */ } });
+  let problem = null;
   const announce = () => {
     const msg = Buffer.from(JSON.stringify({ ps: MAGIC, proto: PROTO, name, ctrl: ports.ctrl, files: ports.files }));
-    for (const a of broadcastAddresses()) udp.send(msg, ports.disc, a, () => {});
+    let ok = false, blocked = false, left = 0;
+    const list = broadcastAddresses().filter((a) => a !== '127.255.255.255');
+    left = list.length;
+    for (const a of list) {
+      udp.send(msg, ports.disc, a, (err) => {
+        if (!err) ok = true;
+        else if (err.code === 'EHOSTUNREACH' && process.platform === 'darwin') blocked = true;
+        if (--left) return;
+        // macOS „Lokales Netzwerk“ gesperrt: kein einziger Broadcast geht raus
+        const next = blocked && !ok ? 'localNetwork' : null;
+        if (next !== problem) { problem = next; onEvent({ type: 'problem', problem }); }
+      });
+    }
+    udp.send(msg, ports.disc, '127.255.255.255', () => {});
   };
   const annTimer = setInterval(announce, 2000);
   setTimeout(announce, 100);
@@ -251,6 +265,7 @@ export function startMaster({ name = os.hostname(), onEvent = () => {}, ports = 
       all(JSON.stringify({ type: 'outputs', on: outputsOn }));
     },
     get state() { return lastState; },
+    problem: () => problem,
     stop() {
       clearInterval(annTimer);
       for (const c of clients.values()) c.sock.destroy();
@@ -276,12 +291,13 @@ export function startClient({ id, name = os.hostname(), cacheDir, displays = () 
   let lastState = null, lastBlend = null, outputsOn = false, appliedOffset = 0, outputsKey = '';
   let pingTimer = null, retryTimer = null, statusTimer = null, lastStatusStr = '', reject = '';
   let filesPort = ports.files;
+  let problem = null; // 'localNetwork' | 'timeout' | 'refused' | null
   let downloading = false;
 
   const status = () => {
     const list = [...files.values()];
     return {
-      connected, address, masterName, reject,
+      connected, address, masterName, reject, problem,
       offset: clock.ready ? Math.round(clock.offset * 10) / 10 : null,
       error: clock.ready ? Math.round(clock.error * 10) / 10 : null,
       files: { done: list.filter((f) => f.ready).length, total: list.length, bytes: list.reduce((s, f) => s + (f.ready ? f.size : f.got || 0), 0), totalBytes: list.reduce((s, f) => s + f.size, 0) },
@@ -402,9 +418,13 @@ export function startClient({ id, name = os.hostname(), cacheDir, displays = () 
     sock = s;
     s.setNoDelay(true);
     s.setEncoding('utf8');
+    // Firewall am Hauptrechner verwirft Pakete still: nicht 75 s warten
+    s.setTimeout(5000, () => { if (!connected) { setProblem('timeout'); s.destroy(); } });
     s.on('connect', () => {
+      s.setTimeout(0);
       connected = true;
       reject = '';
+      setProblem(null);
       s.write(`${JSON.stringify({ type: 'hello', proto: PROTO, id, name, displays: displays() })}\n`);
       clock.samples = [];
       let n = 0;
@@ -439,8 +459,16 @@ export function startClient({ id, name = os.hostname(), cacheDir, displays = () 
       if (!stopped && address) retryTimer = setTimeout(open, 2000);
     };
     s.on('close', down);
-    s.on('error', () => {});
+    s.on('error', (e) => {
+      const c = e.code || '';
+      // macOS meldet eine fehlende Freigabe „Lokales Netzwerk“ als EHOSTUNREACH
+      if (c === 'EHOSTUNREACH' && process.platform === 'darwin') setProblem('localNetwork');
+      else if (c === 'EHOSTUNREACH' || c === 'ENETUNREACH') setProblem('unreachable');
+      else if (c === 'ECONNREFUSED') setProblem('refused');
+      else if (c === 'ETIMEDOUT') setProblem('timeout');
+    });
   }
+  function setProblem(p) { if (p !== problem) { problem = p; emit(); } }
   function connect(addr) {
     if (addr === address && (connected || sock)) return;
     address = addr || null;

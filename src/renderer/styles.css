@@ -602,7 +602,7 @@ input.switch:checked:hover { filter: brightness(1.1); }
 
 /* Mehrrechner-Verbund */
 .cluster-backdrop { z-index: 150; background: var(--bg-stage); }
-.sheet.cluster { padding: 28px 28px 18px; gap: 14px; }
+.sheet.cluster { padding: 28px 28px 18px; gap: 14px; animation: none; } /* wird bei jeder Statusmeldung neu gezeichnet */
 .sheet.cluster .cl-head { display: flex; align-items: center; gap: 16px; }
 .sheet.cluster .cl-head .ci { width: 52px; height: 52px; border-radius: 14px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); flex: none; }
 .sheet.cluster h1 { text-align: left; margin: 0 0 2px; }
@@ -613,3 +613,8 @@ input.switch:checked:hover { filter: brightness(1.1); }
 .led { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex: none; display: inline-block; }
 .led.on { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
 .sel-host { max-width: 100%; }
+.cl-hint { margin: 8px; }
+.cl-hint .head { align-items: flex-start; }
+.cl-hint .head > div:nth-child(2) { flex: 1; }
+.cl-hint .btn { flex: none; align-self: center; }
+.sheet.cluster .cl-hint { margin: 0; }

@@ -91,3 +91,8 @@ test('Hauptrechner und Ausgaberechner über Loopback: Verbinden, Datei kopieren,
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test('Ausgaberechner meldet, wenn am Hauptrechner nichts lauscht', async () => {
+  const client = startClient({ id: 'c2', cacheDir: os.tmpdir(), ports: { ctrl: 47920, disc: 47921, files: 47922 }, target: '127.0.0.1', discover: false });
+  try { await until(() => client.status().problem === 'refused'); } finally { client.stop(); }
+});

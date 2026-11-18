@@ -47,6 +47,9 @@ export function makeBrowserStub() {
     clusterConnect: async () => ({}),
     clusterOutputs: async () => {},
     clusterClearCache: async () => 0,
+    clusterFirewall: async () => null,
+    clusterFirewallAllow: async () => null,
+    localNetworkSettings: async () => {},
     onClusterEvent: noop,
   };
 }

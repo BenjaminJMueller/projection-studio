@@ -473,6 +473,10 @@ if (!custom.startsWith('custom:')) errors.push('error: eigener Typ ' + custom);
   await win.click('#paneSetup .seg-role [data-role=client]');
   await win.waitForSelector('#clusterSheet:not(.hidden)');
   const proj = await win.evaluate(() => { const { S } = window.__app; const p = JSON.parse(JSON.stringify(S.project)); const o = p.outputs.find((x) => x.id === 'A'); o.host = S.cluster.id; o.hostDisplay = S.displays[0].id; return { project: p, modelPath: p.model.path }; });
+  // noch kein Hauptrechner: Hinweis „Verbindung abgelehnt“
+  await win.evaluate(() => window.api.clusterConnect('127.0.0.1'));
+  await win.waitForSelector('#clusterSheet .cl-hint[data-hint=refused]', { timeout: 10000 }).catch(() => errors.push('error: kein Hinweis bei abgelehnter Verbindung'));
+  await win.screenshot({ path: path.join(outDir, '15-verbund-hinweis.png') });
   const master = startMaster({ name: 'Regiepult', host: '127.0.0.1' });
   master.broadcast({ type: 'state', project: proj.project, modelPath: proj.modelPath, play: { playing: false, startedAt: Date.now(), pausedAt: 0, loop: true }, activeId: 'P1', lang: 'de', markers: false });
   master.setOutputs(true);
