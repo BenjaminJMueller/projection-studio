@@ -9,6 +9,9 @@ import { checkForUpdates, updatesEnabled } from './updater.js';
 import { execFile } from 'node:child_process';
 import { tr, setLang, getLang, LANGS } from '../shared/i18n.js';
 import { startMeasureServer, stopMeasureServer, phoneRecord, phoneMessage } from './measureServer.js';
+import { startMaster, startClient } from './cluster.js';
+import os from 'node:os';
+import crypto from 'node:crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..', '..');
@@ -121,6 +124,59 @@ function closeOutput(displayId) {
   outputWins.delete(displayId);
 }
 
+// ---------------- Mehrrechner-Verbund (Rolle je Rechner in settings.json: solo, master, client)
+let cluster = null;
+let clusterCfg = { role: 'solo', id: '', master: null };
+const clusterEvent = (ev) => {
+  if (ev.type === 'outputEvent') { mainWin?.webContents.send('output:event', { ...ev.msg, host: ev.host }); return; }
+  if (ev.type === 'target') { clusterCfg.master = ev.address; saveClusterCfg(); }
+  mainWin?.webContents.send('cluster:event', ev);
+};
+async function saveClusterCfg() {
+  const s = await loadSettings();
+  s.cluster = clusterCfg;
+  await fs.writeFile(settingsFile(), JSON.stringify(s)).catch(() => {});
+}
+/** Ausgaberechner: genau diese Ausgabefenster offen halten. */
+function clusterOpenOutputs(want) {
+  const keep = new Set(want.map((w) => w.displayId));
+  for (const id of [...outputWins.keys()]) if (!keep.has(id)) closeOutput(id);
+  for (const w of want) openOutput(w.displayId, w.outputId);
+}
+function startCluster() {
+  cluster?.stop();
+  cluster = null;
+  const name = os.hostname().replace(/\.local$/, '');
+  if (clusterCfg.role === 'master') cluster = startMaster({ name, onEvent: clusterEvent });
+  else if (clusterCfg.role === 'client') {
+    cluster = startClient({
+      id: clusterCfg.id, name, cacheDir: path.join(app.getPath('userData'), 'cluster-cache'), target: clusterCfg.master,
+      displays: () => listDisplays().map(({ id, label, pixelSize, primary }) => ({ id, label, pixelSize, primary })),
+      openOutputs: clusterOpenOutputs,
+      toOutputs: (msg) => { for (const w of outputWins.values()) if (!w.isDestroyed()) w.webContents.send('state:update', msg); },
+      onEvent: clusterEvent,
+    });
+  }
+}
+const clusterInfo = () => ({
+  role: clusterCfg.role, id: clusterCfg.id, name: os.hostname().replace(/\.local$/, ''),
+  clients: clusterCfg.role === 'master' ? cluster?.clients() || [] : [],
+  status: clusterCfg.role === 'client' ? cluster?.status() : null,
+  masters: clusterCfg.role === 'client' ? cluster?.masters() || [] : [],
+});
+ipcMain.handle('cluster:get', () => clusterInfo());
+ipcMain.handle('cluster:setRole', async (_e, role) => {
+  if (!['solo', 'master', 'client'].includes(role)) return clusterInfo();
+  for (const id of [...outputWins.keys()]) closeOutput(id);
+  clusterCfg.role = role;
+  await saveClusterCfg();
+  startCluster();
+  return clusterInfo();
+});
+ipcMain.handle('cluster:connect', (_e, address) => { if (clusterCfg.role === 'client') cluster?.connect(String(address || '').trim() || null); return clusterInfo(); });
+ipcMain.handle('cluster:outputs', (_e, on) => { if (clusterCfg.role === 'master') cluster?.setOutputs(!!on); });
+ipcMain.handle('cluster:clearCache', async () => (clusterCfg.role === 'client' ? cluster?.clearCache() : 0));
+
 ipcMain.handle('displays:list', () => listDisplays());
 ipcMain.handle('lang:get', () => getLang());
 // Raumeinmessung mit dem Handy als Mikrofon
@@ -158,10 +214,14 @@ ipcMain.handle('output:openIds', () => [...outputWins.keys()]);
 
 // Hauptfenster -> alle Ausgabefenster
 ipcMain.on('state:broadcast', (_e, msg) => {
+  // Ausgaberechner: die Ausgänge bekommen ihren Zustand vom Hauptrechner, nicht vom eigenen Fenster
+  if (clusterCfg.role === 'client') return;
   for (const w of outputWins.values()) if (!w.isDestroyed()) w.webContents.send('state:update', msg);
+  if (clusterCfg.role === 'master') cluster?.broadcast(msg);
 });
 // Ausgabefenster -> Hauptfenster (Maus/Tastatur auf dem Projektor)
 ipcMain.on('output:event', (_e, msg) => {
+  if (clusterCfg.role === 'client') cluster?.fromOutput(msg);
   mainWin?.webContents.send('output:event', msg);
 });
 ipcMain.on('output:focusMain', () => mainWin?.focus());
@@ -266,12 +326,16 @@ function buildMenu() {
 }
 
 app.whenReady().then(async () => {
-  setLang((await loadSettings()).lang || 'de');
+  const settings = await loadSettings();
+  setLang(settings.lang || 'de');
+  clusterCfg = { role: 'solo', master: null, ...(settings.cluster || {}) };
+  if (!clusterCfg.id) { clusterCfg.id = crypto.randomUUID().slice(0, 8); await saveClusterCfg(); }
+  startCluster();
   buildMenu();
   createMainWindow();
   setTimeout(() => checkForUpdates(mainWin, false), 5000);
-  screen.on('display-added', () => mainWin?.webContents.send('displays:changed'));
-  screen.on('display-removed', () => mainWin?.webContents.send('displays:changed'));
+  screen.on('display-added', () => { mainWin?.webContents.send('displays:changed'); cluster?.displaysChanged?.(); });
+  screen.on('display-removed', () => { mainWin?.webContents.send('displays:changed'); cluster?.displaysChanged?.(); });
   // Auflösung oder Anordnung geändert: Ausgabefenster wieder bildschirmfüllend setzen
   screen.on('display-metrics-changed', (_e, d) => {
     const w = outputWins.get(d.id);
@@ -286,5 +350,6 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
+  cluster?.stop();
   app.quit();
 });

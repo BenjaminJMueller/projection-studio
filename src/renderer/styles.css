@@ -599,3 +599,17 @@ input.switch:checked:hover { filter: brightness(1.1); }
 .pin-sel:focus-visible { outline: 2px solid var(--accent); }
 .pin-sel .muted { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 12px; }
 .pin-dot { width: 8px; height: 8px; transform: rotate(45deg); background: #f0a531; box-shadow: 0 0 0 1.5px rgba(0,0,0,.35); flex: none; }
+
+/* Mehrrechner-Verbund */
+.cluster-backdrop { z-index: 150; background: var(--bg-stage); }
+.sheet.cluster { padding: 28px 28px 18px; gap: 14px; }
+.sheet.cluster .cl-head { display: flex; align-items: center; gap: 16px; }
+.sheet.cluster .cl-head .ci { width: 52px; height: 52px; border-radius: 14px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); flex: none; }
+.sheet.cluster h1 { text-align: left; margin: 0 0 2px; }
+.sheet.cluster .lead { text-align: left; margin: 0; }
+.sheet.cluster .group { max-width: none; margin: 0; }
+.sheet.cluster .act { display: flex; justify-content: space-between; align-items: center; padding: 4px 2px 0; }
+.cl-state { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); }
+.led { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex: none; display: inline-block; }
+.led.on { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
+.sel-host { max-width: 100%; }

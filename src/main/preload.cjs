@@ -40,4 +40,10 @@ contextBridge.exposeInMainWorld('api', {
   onOutputClosed: on('output:closed'),
   onMenu: on('menu'),
   onDisplaysChanged: on('displays:changed'),
+  clusterGet: () => ipcRenderer.invoke('cluster:get'),
+  clusterSetRole: (role) => ipcRenderer.invoke('cluster:setRole', role),
+  clusterConnect: (address) => ipcRenderer.invoke('cluster:connect', address),
+  clusterOutputs: (on) => ipcRenderer.invoke('cluster:outputs', on),
+  clusterClearCache: () => ipcRenderer.invoke('cluster:clearCache'),
+  onClusterEvent: on('cluster:event'),
 });

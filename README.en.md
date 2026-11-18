@@ -70,11 +70,11 @@ Reasons for this approach:
 - **Same frame timing.** The four projectors on one controller receive their images from one shared 4K frame.
 - **Simple on the software side.** To the operating system each controller is a single 4K display. The app opens one full-screen window on it and places the four projector images into the cells.
 
-Under *Set up* the controller mode is chosen per output: *2 × 2*, *2 side by side*, *2 stacked*, *3 side by side*, *4 side by side* or *4 stacked*, or *Full* when a projector is connected directly. The projectors of that output are then assigned to the cells in order. If the display resolution does not match the mode, a hint appears next to it. On the controller itself, use the plain mode without bezel correction; overlap and blending are handled by the app.
+Under *Set up* the controller mode is chosen per output: *2 × 2*, *2 side by side*, *2 stacked*, *3 side by side*, *4 side by side* or *4 stacked*, or *1 projector* when a projector is connected directly. The quick choice *Direct, one per output* creates up to four HDMI outputs with one projector each, *Via controller* four per output. The projectors of that output are then assigned to the cells in order. If the display resolution does not match the mode, a hint appears next to it. On the controller itself, use the plain mode without bezel correction; overlap and blending are handled by the app.
 
 Displays are assigned from a menu. Outputs open borderless and full screen on the chosen display, on macOS and Windows. The assignment is kept after unplugging or a change of resolution.
 
-For calibration there is also a **test output**. A single projector can be connected directly without a controller, and this output always shows the currently selected projector full frame. With the *Mouse follows* option, the mouse pointer jumps to that projector's image when switching projectors, on the test output or in the right cell of the controller.
+For calibration there is also an optional **test output**. It always shows the currently selected projector full frame, handy when connecting one projector at a time for setup. A permanently connected projector gets a normal HDMI output with *1 projector* instead. With the *Mouse follows* option, the mouse pointer jumps to that projector's image when switching projectors, on the test output or in the right cell of the controller.
 
 ## Workflow
 
@@ -90,13 +90,25 @@ For calibration there is also a **test output**. A single projector can be conne
 
 Projects are saved automatically, and every step can be undone. On first launch an introduction walks through the setup and offers to start with the demo. The screenshots show the German interface.
 
+## Multiple computers
+
+If one computer's outputs are not enough, other computers on the same network can take over individual outputs.
+
+1. Start the app on all computers. Under *Set up → Multiple computers* choose *Main computer* at the operator's desk and *Output computer* on the others.
+2. Output computers find the main computer by themselves (when there is exactly one on the network). Otherwise enter its address by hand. The choice is kept after a restart; an output computer then reconnects by itself.
+3. On the main computer, under *Displays*, choose the computer and its display for each output.
+
+The project, masks and every change go live to the output computers. Model and videos are copied once (cache in the app's user folder); until then videos are streamed over the network. Playback runs on a shared clock: each output computer continuously measures its clock offset to the main computer (like NTP) and aligns its videos to it.
+
+Limits: without hardware genlock the computers can be up to about one frame apart, which can be visible at blend edges with fast motion. Sound only comes from the main computer. Wired LAN is recommended. The app uses TCP 47810, UDP 47811 and TCP 47812 and only accepts connections from the local network, without a password. On first start the firewall on Windows and macOS asks about incoming connections. So far only tested with simulated computers over loopback.
+
 ## Features and limits
 
 | | |
 |---|---|
 | Projectors | up to 16 per project, each can be disabled, freely named groups (e.g. inner ring, outer ring) |
-| Outputs | up to 4 outputs for video wall controllers (HDMI A to D) and 1 test output for a directly connected projector, all on the same computer |
-| Controller modes | *Full*, *2 × 2*, *2 side by side*, *2 stacked*, *3 side by side*, *4 side by side*, *4 stacked*, *3 × 2*, *3 × 3*. All cells of an output have the same size. |
+| Outputs | up to 4 HDMI outputs (A to D), each with one directly connected projector or a video wall controller, plus 1 optional test output. Outputs can live on other computers on the network. |
+| Controller modes | *1 projector*, *2 × 2*, *2 side by side*, *2 stacked*, *3 side by side*, *4 side by side*, *4 stacked*, *3 × 2*, *3 × 3*. All cells of an output have the same size. |
 | Resolution per projector | 1920 × 1080, 1920 × 1200, 1280 × 800, 1280 × 720, 1024 × 768, 3840 × 2160 or the native resolution of the projector type (resolution of the signal) |
 | 3D model | OBJ only; materials and textures are ignored. The demo has about 16,000 triangles; much larger models are untested. |
 | Projector types | database of verified datasheet values (Epson EB-535W, BenQ MW632ST, Optoma GT1080HDR, Epson EB-L1050U, Panasonic PT-VMZ60), custom types from a datasheet (native resolution, throw ratio, zoom, fixed offset or lens shift), plus generic presets. Lens distortion is not modelled; fine correction compensates the rest. |
@@ -120,7 +132,7 @@ Known limitations:
 - Camera calibration and room tuning are tested with simulated camera images and recordings, not yet on the real installation.
 - Room tuning with a smartphone: phone microphones are inaccurate below about 100 Hz and above 10 kHz, so only the range in between is corrected. The phone asks once about the self-signed certificate when the page is first opened.
 - Flat screens also need a (simple) OBJ model.
-- Multiple computers working together are not supported.
+- Multiple computers: without genlock up to about one frame of offset between computers, sound only from the main computer. Not yet tried with real computers on a network.
 
 ## Calibration with a camera
 

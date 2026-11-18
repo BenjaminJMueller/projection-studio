@@ -42,5 +42,11 @@ export function makeBrowserStub() {
     onOutputClosed: noop,
     onMenu: noop,
     onDisplaysChanged: noop,
+    clusterGet: async () => ({ role: 'solo', id: 'browser', name: 'Browser', clients: [], status: null, masters: [] }),
+    clusterSetRole: async (role) => ({ role, id: 'browser', name: 'Browser', clients: [], status: null, masters: [] }),
+    clusterConnect: async () => ({}),
+    clusterOutputs: async () => {},
+    clusterClearCache: async () => 0,
+    onClusterEvent: noop,
   };
 }

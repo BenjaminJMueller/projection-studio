@@ -432,6 +432,63 @@ await win.waitForTimeout(400);
 await win.screenshot({ path: path.join(outDir, '12-eigener-typ.png') });
 const custom = await win.evaluate(() => window.__app.S.project.projectors[8].lens);
 if (!custom.startsWith('custom:')) errors.push('error: eigener Typ ' + custom);
+
+// ---------------- Mehrere Rechner: dieser Rechner als Hauptrechner, ein Ausgaberechner per Node über Loopback
+{
+  const { startClient, startMaster } = await import(path.join(root, 'src/main/cluster.js'));
+  await win.click('#modes button[data-mode=setup]');
+  await win.click('#paneSetup .seg-role [data-role=master]');
+  await win.waitForFunction(() => window.__app.S.cluster.role === 'master');
+  const opened = [], toOut = [];
+  const cacheDir = fs.mkdtempSync('/tmp/kalib-cache-');
+  const client = startClient({
+    id: 'e2e', name: 'Rechner 2', cacheDir, target: '127.0.0.1', discover: false,
+    displays: () => [{ id: 77, label: 'Beamer-Ausgang', pixelSize: { width: 3840, height: 2160 } }],
+    openOutputs: (w) => opened.push(w), toOutputs: (m) => toOut.push(m),
+  });
+  await win.waitForFunction(() => window.__app.S.cluster.clients.length === 1, null, { timeout: 10000 });
+  await win.selectOption('#paneSetup select[aria-label="Rechner für HDMI B"]', 'e2e');
+  await win.waitForTimeout(300);
+  await win.evaluate(() => window.__app.toggleOutputs(true));
+  const t0 = Date.now();
+  while (Date.now() - t0 < 15000 && !(opened.at(-1)?.some((w) => w.outputId === 'B' && w.displayId === 77) && client.status().files.total && client.status().files.done === client.status().files.total)) await new Promise((r) => setTimeout(r, 100));
+  if (!opened.at(-1)?.some((w) => w.outputId === 'B' && w.displayId === 77)) errors.push('error: Ausgaberechner öffnet HDMI B nicht ' + JSON.stringify(opened.at(-1)));
+  const st = client.status();
+  if (!(st.files.total >= 1 && st.files.done === st.files.total)) errors.push('error: Dateien nicht übertragen ' + JSON.stringify(st.files));
+  const lastState = toOut.filter((m) => m.type === 'state').at(-1);
+  if (!lastState?.modelPath?.startsWith(cacheDir)) errors.push('error: Modell zeigt nicht auf die Kopie ' + lastState?.modelPath);
+  if (!(st.offset != null && Math.abs(st.offset) < 50)) errors.push('error: Uhrabgleich ' + st.offset);
+  client.fromOutput({ type: 'stats', outputId: 'B', playing: false, fps: 0, ms: 1, dropped: 0 });
+  await win.waitForFunction(() => window.__app.S.outStats.B?.host === 'e2e', null, { timeout: 5000 }).catch(() => errors.push('error: Meldung vom Ausgaberechner kommt nicht an'));
+  await win.waitForTimeout(2500);
+  await win.locator('#paneSetup select[aria-label="Rechner für HDMI B"]').scrollIntoViewIfNeeded();
+  await win.screenshot({ path: path.join(outDir, '15-verbund-hauptrechner.png') });
+  console.log('Verbund:', JSON.stringify({ offset: st.offset, error: st.error, files: st.files, outputs: opened.at(-1) }));
+  await win.evaluate(() => window.__app.toggleOutputs(false));
+  await win.selectOption('#paneSetup select[aria-label="Rechner für HDMI B"]', '');
+  client.stop();
+
+  // dieser Rechner als Ausgaberechner, ein Hauptrechner per Node
+  const clientId = await win.evaluate(() => window.__app.S.cluster.id);
+  await win.click('#paneSetup .seg-role [data-role=client]');
+  await win.waitForSelector('#clusterSheet:not(.hidden)');
+  const proj = await win.evaluate(() => { const { S } = window.__app; const p = JSON.parse(JSON.stringify(S.project)); const o = p.outputs.find((x) => x.id === 'A'); o.host = S.cluster.id; o.hostDisplay = S.displays[0].id; return { project: p, modelPath: p.model.path }; });
+  const master = startMaster({ name: 'Regiepult', host: '127.0.0.1' });
+  master.broadcast({ type: 'state', project: proj.project, modelPath: proj.modelPath, play: { playing: false, startedAt: Date.now(), pausedAt: 0, loop: true }, activeId: 'P1', lang: 'de', markers: false });
+  master.setOutputs(true);
+  await win.evaluate(() => window.api.clusterConnect('127.0.0.1'));
+  const n0 = app.windows().length;
+  await win.waitForFunction(() => window.__app.S.cluster.status?.connected && window.__app.S.cluster.status?.outputs?.length === 1, null, { timeout: 15000 }).catch(() => errors.push('error: Ausgaberechner verbindet nicht oder öffnet keinen Ausgang'));
+  await win.waitForTimeout(2500);
+  if (app.windows().length < n0) errors.push('error: kein Ausgabefenster auf dem Ausgaberechner');
+  await win.screenshot({ path: path.join(outDir, '15-verbund-ausgaberechner.png') });
+  if (!master.clients().some((c) => c.id === clientId)) errors.push('error: Hauptrechner kennt den Ausgaberechner nicht');
+  await win.click('#clLeave');
+  await win.waitForFunction(() => window.__app.S.cluster.role === 'solo');
+  master.stop();
+  fs.rmSync(cacheDir, { recursive: true, force: true });
+}
+
 console.log('Konsolen-Fehler/Warnungen:', errors.length ? errors : 'keine');
 await app.close();
 if (errors.some((e) => e.startsWith('pageerror') || e.startsWith('error'))) process.exit(1);

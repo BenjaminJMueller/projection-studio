@@ -57,7 +57,14 @@ const S = {
   outStats: {},
   activeHandle: null,
   activePin: null,
+  cluster: { role: 'solo', id: '', name: '', clients: [], status: null, masters: [] },
+  remoteOn: false, // Hauptrechner: Ausgänge auf Ausgaberechnern eingeschaltet
 };
+const isMaster = () => S.cluster.role === 'master';
+/** Ausgang liegt auf einem Ausgaberechner (nur wenn dieser Rechner Hauptrechner ist). */
+const isRemote = (o) => isMaster() && !!o.host;
+/** Sind Ausgänge eingeschaltet (eigene Fenster oder Ausgaberechner)? */
+const outputsOn = () => S.openOutputs.size > 0 || S.remoteOn;
 const undoStack = [], redoStack = [];
 
 const active = () => S.project.projectors.find((p) => p.id === S.activeId);
@@ -555,6 +562,7 @@ async function assignDisplay(o, displayId) {
 async function displaysChanged() {
   S.displays = await api.listDisplays();
   for (const o of S.project.outputs) {
+    if (isRemote(o)) continue;
     if (o.displayId != null && S.displays.some((d) => d.id === o.displayId)) continue;
     const again = o.displayKey && S.displays.find((d) => displayKey(d) === o.displayKey && !S.project.outputs.some((x) => x !== o && x.displayId === d.id));
     if (o.displayId != null && S.openOutputs.has(o.displayId)) await api.closeOutput(o.displayId);
@@ -562,7 +570,7 @@ async function displaysChanged() {
   }
   if (S.outputsWanted) {
     for (const o of S.project.outputs) {
-      if (o.displayId != null && S.displays.some((d) => d.id === o.displayId)) await api.openOutput(o.displayId, o.id);
+      if (!isRemote(o) && o.displayId != null && S.displays.some((d) => d.id === o.displayId)) await api.openOutput(o.displayId, o.id);
     }
   }
   await syncOpenOutputs();
@@ -587,6 +595,91 @@ function numberList(ns) {
   const contiguous = ns.every((n, i) => !i || n === ns[i - 1] + 1);
   return contiguous ? `Projektor ${ns[0]} bis ${ns[ns.length - 1]}` : `Projektoren ${ns.join(', ')}`;
 }
+// ------------------------------------------------------------------ Mehrere Rechner
+const clusterClient = (id) => S.cluster.clients.find((c) => c.id === id);
+const fmtMB = (b) => `${nf(b / 1048576, b < 10485760 ? 1 : 0)} MB`;
+
+/** Ausgang auf einen Rechner legen ('' = dieser Rechner). */
+async function setOutputHost(o, host) {
+  if ((o.host || '') === host) return;
+  pushUndo();
+  if (!o.host && o.displayId != null && S.openOutputs.has(o.displayId)) { await api.closeOutput(o.displayId); await syncOpenOutputs(); }
+  if (host) { o.host = host; o.hostName = clusterClient(host)?.name || host; o.hostDisplay = clusterClient(host)?.displays?.[0]?.id ?? null; }
+  else { delete o.host; delete o.hostName; delete o.hostDisplay; }
+  if (outputsOn()) await toggleOutputs(true);
+  markDirty(); refresh();
+}
+function setHostDisplay(o, id) {
+  o.hostDisplay = id;
+  if (outputsOn()) toggleOutputs(true);
+  markDirty(); refresh();
+}
+
+async function setClusterRole(role) {
+  if (role === S.cluster.role) return;
+  if (outputsOn()) await toggleOutputs(false);
+  S.cluster = { ...S.cluster, ...(await api.clusterSetRole(role)) };
+  S.remoteOn = false;
+  refresh();
+  renderClusterSheet();
+}
+
+function clusterStatusText(st) {
+  if (!st) return 'wartet auf Meldung';
+  const parts = [];
+  if (st.offset != null) parts.push(`Uhr ±${nf(Math.max(0.1, st.error), 1)} ms`);
+  const f = st.files;
+  if (f?.total) parts.push(f.done === f.total ? `${f.total} Dateien bereit` : `Dateien ${f.done} von ${f.total} · ${Math.round((100 * f.bytes) / Math.max(1, f.totalBytes))} %`);
+  if (st.outputs?.length) parts.push(`zeigt ${st.outputs.map((x) => `HDMI ${x.split('@')[0]}`).join(', ')}`);
+  return parts.join(' · ') || 'verbunden';
+}
+
+function clusterGroup() {
+  const c = S.cluster;
+  const rows = [
+    el('div', { class: 'r wide' }, el('div', { class: 'seg fill seg-role', role: 'radiogroup', 'aria-label': 'Rolle dieses Rechners' },
+      ...[['solo', 'Nur dieser'], ['master', 'Hauptrechner'], ['client', 'Ausgaberechner']].map(([k, l]) => el('button', { class: c.role === k ? 'on' : '', 'data-role': k, onclick: () => setClusterRole(k) }, l)))),
+  ];
+  if (c.role === 'master') {
+    if (!c.clients.length) rows.push(el('div', { class: 'empty-note' }, 'Noch kein Ausgaberechner verbunden.'));
+    for (const cl of c.clients) {
+      rows.push(el('div', { class: 'r' }, el('div', { class: 'lbl', style: 'gap:10px' }, el('span', { class: 'led on' }),
+        el('span', {}, cl.name, el('span', { class: 'sub' }, `${cl.address} · ${clusterStatusText(cl.status)}`)))));
+    }
+  }
+  return rows;
+}
+
+/** Ausgaberechner: die ganze Oberfläche ist durch diese Statusseite ersetzt. */
+function renderClusterSheet() {
+  const sh = $('#clusterSheet');
+  if (S.cluster.role !== 'client') { sh.classList.add('hidden'); return; }
+  sh.classList.remove('hidden');
+  const st = S.cluster.status || {};
+  const masters = S.cluster.masters || [];
+  const conn = st.connected;
+  const f = st.files || { total: 0 };
+  const outs = (st.outputs || []).map((x) => { const [o, d] = x.split('@'); return { o, d: (st.displays || []).find((y) => String(y.id) === d) }; });
+  let addr = st.address || '';
+  sh.replaceChildren(el('div', { class: 'sheet cluster' },
+    el('div', { class: 'cl-head' }, el('div', { class: 'ci', html: icon('monitor', 28) }),
+      el('div', {}, el('h1', {}, 'Ausgaberechner'), el('p', { class: 'lead' }, conn ? `Verbunden mit ${st.masterName || st.address}` : st.address ? `Verbinde mit ${st.address} …` : 'Suche Hauptrechner im Netz …'))),
+    el('div', { class: 'group' },
+      r('Hauptrechner', el('span', { class: `cl-state ${conn ? 'ok' : ''}` }, el('span', { class: `led ${conn ? 'on' : ''}` }), conn ? `${st.masterName} · ${st.address}` : 'nicht verbunden')),
+      r('Uhrabgleich', el('span', { class: 'muted' }, st.offset != null ? `±${nf(Math.max(0.1, st.error), 1)} ms` : '–'), { tip: 'Abweichung der Uhr zum Hauptrechner. Darüber starten alle Rechner die Videos gleichzeitig. Ohne Genlock bleibt bis zu etwa ein Bild Versatz.' }),
+      r('Dateien', el('span', { class: 'muted' }, f.total ? (f.done === f.total ? `${f.total} bereit · ${fmtMB(f.totalBytes)}` : `${f.done} von ${f.total} · ${fmtMB(f.bytes)} von ${fmtMB(f.totalBytes)}`) : '–'), { tip: 'Modell und Videos werden einmal auf diesen Rechner kopiert. Bis dahin werden Videos über das Netz gestreamt.' }),
+      r('Zeigt', el('span', { class: 'muted' }, outs.length ? outs.map(({ o, d }) => `HDMI ${o} → ${d?.label || '?'}`).join(', ') : 'nichts'), { sub: 'Zuordnung am Hauptrechner unter „Einrichten“' })),
+    el('div', { class: 'group' },
+      ...masters.map((m) => r(m.name, el('button', { class: `btn ${m.address === st.address ? 'on' : ''}`, onclick: async () => { await api.clusterConnect(m.address); } }, m.address === st.address ? 'Gewählt' : 'Verbinden'), { sub: m.address })),
+      r('Adresse', el('div', { style: 'display:flex;gap:6px;width:100%' },
+        input(addr, (v) => { addr = v; }, 'text', { 'aria-label': 'Adresse des Hauptrechners', placeholder: '192.168.1.10', id: 'clAddr' }),
+        el('button', { class: 'btn', id: 'clConnect', onclick: () => api.clusterConnect(addr) }, 'Verbinden')), { tip: 'Nur nötig, wenn der Hauptrechner nicht von selbst erscheint, z. B. in einem anderen Teilnetz.' }),
+      r('Diese Bildschirme', el('span', { class: 'muted' }, (st.displays || []).map((d) => `${d.label} (${d.pixelSize.width} × ${d.pixelSize.height})`).join(', ') || '–'))),
+    el('div', { class: 'act' },
+      el('button', { class: 'link', onclick: async () => { const n = await api.clusterClearCache(); toast(`${n} alte Dateien gelöscht`); } }, 'Zwischenspeicher leeren'),
+      el('button', { class: 'btn', id: 'clLeave', onclick: () => setClusterRole('solo') }, 'Verbund verlassen'))));
+}
+
 /** Schnellwahl: Projektoren über Video-Wall-Controller oder direkt, je HDMI-Ausgang einer. */
 function connectionRow(after = () => {}) {
   const cur = connectionOf(S.project);
@@ -604,10 +697,14 @@ function connectionRow(after = () => {}) {
 }
 
 function outputRows({ solo = true } = {}) {
-  const opts = [['', 'Kein Bildschirm'], ...S.displays.map((d) => [d.id, `${d.label} · ${d.pixelSize.width} × ${d.pixelSize.height}`])];
+  const dispOpts = (list) => [['', 'Kein Bildschirm'], ...list.map((d) => [d.id, `${d.label} · ${d.pixelSize.width} × ${d.pixelSize.height}`])];
+  const opts = dispOpts(S.displays);
+  const hosts = isMaster() ? [['', 'Dieser Rechner'], ...S.cluster.clients.map((c) => [c.id, c.name])] : null;
   return S.project.outputs.filter((o) => solo || !o.solo).map((o) => {
     const ps = S.project.projectors.filter((p) => p.output === o.id).map((p) => indexOf(p) + 1);
-    const d = S.displays.find((x) => x.id === o.displayId);
+    const remote = isRemote(o);
+    const cl = remote ? clusterClient(o.host) : null;
+    const d = remote ? cl?.displays?.find((x) => x.id === o.hostDisplay) : S.displays.find((x) => x.id === o.displayId);
     const L = layoutOf(o);
     // passt die Auflösung zur Aufteilung? (je Feld eine Projektorauflösung)
     const first = S.project.projectors.find((p) => p.output === o.id);
@@ -619,8 +716,12 @@ function outputRows({ solo = true } = {}) {
         el('span', {}, o.name, el('span', { class: 'sub' }, sub),
           mismatch ? el('span', { class: 'sub', style: 'color:var(--warn)' }, `Bildschirm hat ${d.pixelSize.width} × ${d.pixelSize.height}, erwartet ${want[0]} × ${want[1]}`) : null),
         o.solo ? infoBtn('Optional, nur als Hilfe beim Kalibrieren: zeigt immer den Projektor, der gerade links gewählt ist, im ganzen Bild. Ein fest angeschlossener Projektor bekommt dagegen einen normalen HDMI-Ausgang mit „1 Projektor“.') : null),
+      hosts && !o.solo && (hosts.length > 1 || o.host) ? el('div', { class: 'ctl' },
+        select(o.host && !cl ? [...hosts, [o.host, `${o.hostName || o.host} (nicht verbunden)`]] : hosts, o.host || '', (v) => setOutputHost(o, v), { 'aria-label': `Rechner für ${o.name}`, class: 'sel-host' })) : null,
       el('div', { class: 'ctl' },
-        select(opts, o.displayId ?? '', (v) => assignDisplay(o, v ? Number(v) : null), { 'aria-label': `Bildschirm für ${o.name}` }),
+        remote
+          ? select(dispOpts(cl?.displays || []), o.hostDisplay ?? '', (v) => setHostDisplay(o, v ? Number(v) : null), { 'aria-label': `Bildschirm für ${o.name}` })
+          : select(opts, o.displayId ?? '', (v) => assignDisplay(o, v ? Number(v) : null), { 'aria-label': `Bildschirm für ${o.name}` }),
         o.solo ? null : select(Object.entries(LAYOUTS).map(([k, x]) => [k, x.label]), o.layout, (v) => {
           pushUndo();
           o.layout = v;
@@ -653,6 +754,8 @@ function renderSetup() {
         el('div', { class: 'ctl' }, el('button', { class: 'btn', id: 'btnAddOutput', onclick: () => { const o = addOutput(S.project); if (o) { markDirty(); refresh(); toast(`${o.name} angelegt`); } } }, ic('plus', 14), 'Ausgang hinzufügen'))) : null,
       r('Maus springt mit', switchCtl(!!S.project.view.mouseFollow, (v) => { S.project.view.mouseFollow = v; markDirty(); refresh(); if (v) mouseToProjector(); }),
         { tip: 'Beim Wechsel des Projektors springt der Mauszeiger auf dessen Bild am Ausgang. So muss man die Maus auf den Projektionen nicht suchen.' })),
+    gtitle('Mehrere Rechner', infoBtn('Weitere Rechner im selben Netz können Ausgänge übernehmen. Dort die App starten und „Ausgaberechner“ wählen, hier „Hauptrechner“. Projekt, Modell und Videos werden automatisch übertragen, die Wiedergabe läuft über eine gemeinsame Uhr. Ton kommt nur vom Hauptrechner.')),
+    group(...clusterGroup()),
     gtitle(displayName(p)),
     group(
       r('Name', input(displayName(p), (v) => set(() => { p.name = v.trim() || `P${indexOf(p) + 1}`; }))),
@@ -1007,7 +1110,7 @@ function warpPane(p) {
     ),
     group(
       r('Ausgewählt', el('span', { class: 'muted' }, selText)),
-      r('Testbild', el('button', { class: 'btn', onclick: () => { S.project.view.outputMode = 'grid'; markDirty(); if (!S.openOutputs.size) toggleOutputs(true); refresh(); } }, 'Raster auf Projektoren')),
+      r('Testbild', el('button', { class: 'btn', onclick: () => { S.project.view.outputMode = 'grid'; markDirty(); if (!outputsOn()) toggleOutputs(true); refresh(); } }, 'Raster auf Projektoren')),
     ),
     el('div', { class: 'act' },
       S.activePin != null
@@ -1126,7 +1229,7 @@ const TEST_MODES = [['video', 'Video', 'Gewähltes Video auf dem Modell'], ['edg
 function renderOutput() {
   const v = S.project.view;
   const td = S.project.td;
-  const isOpen = S.openOutputs.size > 0;
+  const isOpen = outputsOn();
   put('#paneOutput', 
     gtitle('Projektoren'),
     group(
@@ -1244,7 +1347,7 @@ function setPlay(action) {
   if (!items().length) return toast('Erst ein Video wählen.');
   S.play = playState({ ...S.play, loop: pb.loop }, action, total());
   if (action === 'play') S.project.view.outputMode = 'video';
-  if (action === 'play' && !S.openOutputs.size) toggleOutputs(true);
+  if (action === 'play' && !outputsOn()) toggleOutputs(true);
   refresh();
 }
 const togglePlay = () => setPlay(S.play.playing ? 'pause' : 'play');
@@ -1344,7 +1447,7 @@ function outStatsText() {
 function showOutStats() {
   const b = $('#fpsBadge');
   const now = Date.now();
-  const list = Object.values(S.outStats).filter((x) => now - x.at < 5000 && S.openOutputs.size);
+  const list = Object.values(S.outStats).filter((x) => now - x.at < 5000 && outputsOn());
   if (!list.length) { b.hidden = true; return; }
   b.hidden = false;
   const playing = list.some((x) => x.playing);
@@ -1476,7 +1579,7 @@ function sendAllLive() {
 // ------------------------------------------------------------------ Ausgänge
 let bcQueued = false;
 function broadcast() {
-  if (!S.openOutputs.size || bcQueued) return;
+  if ((!outputsOn() && !isMaster()) || bcQueued) return;
   bcQueued = true;
   requestAnimationFrame(() => {
     bcQueued = false;
@@ -1497,7 +1600,7 @@ function broadcast() {
   });
 }
 function broadcastBlend() {
-  if (!S.openOutputs.size) return;
+  if (!outputsOn() && !isMaster()) return;
   const images = {};
   for (const [id, b] of Object.entries(S.blendImages)) images[id] = b.autoPreviewUrl;
   api.broadcast({ type: 'blend', images });
@@ -1508,18 +1611,23 @@ async function syncOpenOutputs() {
 }
 
 async function toggleOutputs(force) {
-  const open = force ?? !S.openOutputs.size;
+  if (S.cluster.role === 'client') return;
+  const open = force ?? !outputsOn();
   S.outputsWanted = open;
   if (!open) {
     await api.closeAllOutputs();
     S.openOutputs.clear();
+    S.remoteOn = false;
+    if (isMaster()) api.clusterOutputs(false);
     return refresh();
   }
-  const assigned = S.project.outputs.filter((o) => o.displayId != null && S.displays.some((d) => d.id === o.displayId));
-  if (!assigned.length) {
+  const assigned = S.project.outputs.filter((o) => !isRemote(o) && o.displayId != null && S.displays.some((d) => d.id === o.displayId));
+  const remote = S.project.outputs.filter((o) => isRemote(o) && o.hostDisplay != null);
+  if (!assigned.length && !remote.length) {
     toast('Erst unter „Einrichten“ einen Bildschirm für HDMI A oder B wählen.');
     return refresh();
   }
+  if (isMaster()) { S.remoteOn = remote.length > 0; api.clusterOutputs(S.remoteOn); broadcast(); broadcastBlend(); }
   for (const o of assigned) await api.openOutput(o.displayId, o.id);
   await syncOpenOutputs();
   refresh();
@@ -1557,6 +1665,21 @@ api.onOutputEvent((msg) => {
 });
 api.onOutputClosed(async () => { await syncOpenOutputs(); refresh(); });
 api.onDisplaysChanged(() => displaysChanged());
+let clusterRefresh = 0;
+api.onClusterEvent((ev) => {
+  if (ev.type === 'clients') {
+    S.cluster.clients = ev.clients;
+    // Ausgaberechner neu verbunden: Zustand und Masken gleich nachschicken
+    if (outputsOn()) { S.remoteOn = S.project.outputs.some((o) => isRemote(o) && o.hostDisplay != null); if (S.remoteOn) api.clusterOutputs(true); }
+    if (S.mode === 'setup' && Date.now() - clusterRefresh > 400) { clusterRefresh = Date.now(); refresh(); }
+  } else if (ev.type === 'client') {
+    S.cluster.status = ev.status;
+    S.cluster.masters = ev.masters;
+    if (!document.activeElement?.closest?.('#clusterSheet')) renderClusterSheet();
+  } else if (ev.type === 'error') {
+    toast(`Verbund: ${ev.error}`);
+  }
+});
 
 // ------------------------------------------------------------------ Tastatur
 function handleKey(e) {
@@ -2054,12 +2177,14 @@ api.onLangChanged((l) => applyLang(l));
   // Beim allerersten Start entscheidet die Einführung, ob mit der Demo begonnen wird.
   if (!restored && onboardingSeen()) await loadDemo();
   S.project.outputs.forEach((o, i) => {
-    if (o.displayId != null && S.displays.some((d) => d.id === o.displayId)) return;
+    if (o.host || (o.displayId != null && S.displays.some((d) => d.id === o.displayId))) return;
     const byKey = o.displayKey && S.displays.find((d) => displayKey(d) === o.displayKey);
     o.displayId = byKey ? byKey.id : o.solo ? null : ext[i]?.id ?? null;
   });
   await syncOpenOutputs();
+  S.cluster = { ...S.cluster, ...(await api.clusterGet()) };
   refresh();
-  if (!onboardingSeen()) showOnboarding(0);
-  window.__app = { S, tuning, camcal, view, refresh, assignDisplay, setVideo, addVideos, jumpTo, audio, setPlay, scheduleSolve, selectPoint, computeBlend, toggleOutputs, setMode, showOnboarding, closeOnboarding, ready: true };
+  renderClusterSheet();
+  if (!onboardingSeen() && S.cluster.role !== 'client') showOnboarding(0);
+  window.__app = { S, tuning, camcal, view, refresh, assignDisplay, setVideo, addVideos, jumpTo, audio, setPlay, scheduleSolve, selectPoint, computeBlend, toggleOutputs, setMode, showOnboarding, closeOnboarding, setClusterRole, ready: true };
 })();

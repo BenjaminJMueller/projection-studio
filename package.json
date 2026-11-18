@@ -61,7 +61,8 @@
       "identity": "-",
       "extendInfo": {
         "NSCameraUsageDescription": "The camera is used to calibrate projectors automatically with test patterns.",
-        "NSMicrophoneUsageDescription": "The microphone is used to measure the speakers for room tuning."
+        "NSMicrophoneUsageDescription": "The microphone is used to measure the speakers for room tuning.",
+        "NSLocalNetworkUsageDescription": "Projection Studio verbindet sich im lokalen Netz mit weiteren Rechnern, die Ausgänge übernehmen (Mehrere Rechner)."
       },
       "artifactName": "Projection-Studio-mac.${ext}"
     },

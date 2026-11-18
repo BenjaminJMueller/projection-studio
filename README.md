@@ -68,11 +68,11 @@ Gründe für diesen Weg:
 - **Gleicher Bildzeitpunkt.** Die vier Projektoren an einem Controller bekommen ihre Bilder aus einem gemeinsamen 4K-Bild.
 - **Einfache Software-Seite.** Für das Betriebssystem ist jeder Controller ein einzelner 4K-Bildschirm. Die App öffnet darauf ein Vollbildfenster und setzt die vier Projektorbilder in die Viertel.
 
-Unter *Einrichten* wird je Ausgang der Modus des Controllers gewählt: *2 × 2*, *2 nebeneinander*, *2 übereinander*, *3 nebeneinander*, *4 nebeneinander* oder *4 übereinander*, bzw. *Ganz*, wenn ein Projektor direkt angeschlossen ist. Die Projektoren des Ausgangs werden dann der Reihe nach auf die Felder verteilt. Passt die Auflösung des Bildschirms nicht zum Modus, steht ein Hinweis daneben. Am Controller selbst sollte der reine Modus ohne Rahmenausgleich (Bezel Correction) eingestellt sein. Überlappung und Überblendung übernimmt die App.
+Unter *Einrichten* wird je Ausgang der Modus des Controllers gewählt: *2 × 2*, *2 nebeneinander*, *2 übereinander*, *3 nebeneinander*, *4 nebeneinander* oder *4 übereinander*, bzw. *1 Projektor*, wenn ein Projektor direkt angeschlossen ist. Die Schnellwahl *Direkt, je Ausgang einer* legt bis zu vier HDMI-Ausgänge mit je einem Projektor an, *Über Controller* je Ausgang vier. Die Projektoren des Ausgangs werden dann der Reihe nach auf die Felder verteilt. Passt die Auflösung des Bildschirms nicht zum Modus, steht ein Hinweis daneben. Am Controller selbst sollte der reine Modus ohne Rahmenausgleich (Bezel Correction) eingestellt sein. Überlappung und Überblendung übernimmt die App.
 
 Die Bildschirme werden über eine Auswahl zugewiesen. Die Ausgänge öffnen sich randlos im Vollbild auf dem gewählten Bildschirm, unter macOS und Windows. Die Zuordnung bleibt auch nach Abstecken oder Auflösungswechsel erhalten.
 
-Zum Kalibrieren gibt es zusätzlich einen **Testausgang**. Dort lässt sich ein einzelner Projektor ohne Controller direkt anschließen, und der Ausgang zeigt immer den gerade gewählten Projektor im ganzen Bild. Mit der Option *Maus springt mit* wandert der Mauszeiger beim Wechsel des Projektors auf dessen Bild, auf dem Testausgang oder im richtigen Feld des Controllers.
+Zum Kalibrieren gibt es zusätzlich einen optionalen **Testausgang**. Er zeigt immer den gerade gewählten Projektor im ganzen Bild, praktisch, wenn man reihum je einen Projektor zum Einrichten anschließt. Ein fest angeschlossener Projektor bekommt dagegen einen normalen HDMI-Ausgang mit *1 Projektor*. Mit der Option *Maus springt mit* wandert der Mauszeiger beim Wechsel des Projektors auf dessen Bild, auf dem Testausgang oder im richtigen Feld des Controllers.
 
 ## Arbeitsablauf
 
@@ -88,13 +88,25 @@ Zum Kalibrieren gibt es zusätzlich einen **Testausgang**. Dort lässt sich ein 
 
 Projekte werden automatisch gesichert, alle Schritte lassen sich rückgängig machen. Eine Einführung führt beim ersten Start durch die Einrichtung und bietet an, mit der Demo zu beginnen. Die Oberfläche ist auf Deutsch, Englisch lässt sich im Menü *Ansicht → Sprache* oder unter *Hilfe* (?) umstellen.
 
+## Mehrere Rechner
+
+Reichen die Ausgänge eines Rechners nicht, übernehmen weitere Rechner im selben Netz einzelne Ausgänge.
+
+1. Auf allen Rechnern die App starten. Unter *Einrichten → Mehrere Rechner* am Bedienplatz *Hauptrechner* wählen, an den anderen *Ausgaberechner*.
+2. Ausgaberechner finden den Hauptrechner von selbst (bei genau einem im Netz). Sonst die Adresse von Hand eingeben. Die Wahl bleibt nach einem Neustart erhalten, ein Ausgaberechner verbindet sich dann wieder selbst.
+3. Am Hauptrechner unter *Bildschirme* je Ausgang den Rechner und dessen Bildschirm wählen.
+
+Projekt, Masken und jede Änderung gehen live an die Ausgaberechner. Modell und Videos werden einmal kopiert (Zwischenspeicher im Benutzerordner der App), bis dahin werden Videos über das Netz gestreamt. Die Wiedergabe läuft über eine gemeinsame Uhr: Jeder Ausgaberechner misst laufend den Versatz seiner Uhr zum Hauptrechner (wie NTP) und gleicht seine Videos darauf ab.
+
+Grenzen: Ohne Hardware-Genlock liegen die Rechner bis zu etwa ein Bild auseinander, an Überblendkanten mit schneller Bewegung kann man das sehen. Ton kommt nur vom Hauptrechner. Kabel-LAN wird empfohlen. Die App nutzt TCP 47810, UDP 47811 und TCP 47812 und nimmt nur Verbindungen aus dem lokalen Netz an, ohne Passwort. Beim ersten Start fragt die Firewall unter Windows und macOS nach eingehenden Verbindungen. Bisher nur mit simulierten Rechnern über Loopback getestet.
+
 ## Funktionsumfang und Grenzen
 
 | | |
 |---|---|
 | Projektoren | bis zu 16 pro Projekt, einzeln abschaltbar, frei benennbare Gruppen (z. B. Innenring, Außenring) |
-| Ausgänge | bis zu 4 Ausgänge für Video-Wall-Controller (HDMI A bis D) und 1 Testausgang für einen direkt angeschlossenen Projektor, alle auf demselben Rechner |
-| Controller-Modi | *Ganz*, *2 × 2*, *2 nebeneinander*, *2 übereinander*, *3 nebeneinander*, *4 nebeneinander*, *4 übereinander*, *3 × 2*, *3 × 3*. Alle Felder eines Ausgangs sind gleich groß. |
+| Ausgänge | bis zu 4 HDMI-Ausgänge (A bis D), je mit einem direkt angeschlossenen Projektor oder einem Video-Wall-Controller, dazu 1 optionaler Testausgang. Ausgänge können auf weiteren Rechnern im Netz liegen. |
+| Controller-Modi | *1 Projektor*, *2 × 2*, *2 nebeneinander*, *2 übereinander*, *3 nebeneinander*, *4 nebeneinander*, *4 übereinander*, *3 × 2*, *3 × 3*. Alle Felder eines Ausgangs sind gleich groß. |
 | Auflösung je Projektor | 1920 × 1080, 1920 × 1200, 1280 × 800, 1280 × 720, 1024 × 768, 3840 × 2160 oder die native des Projektor-Typs (Auflösung des Signals) |
 | 3D-Modell | nur OBJ, Materialien und Texturen werden ignoriert. Die Demo hat rund 16 000 Dreiecke, deutlich größere Modelle sind nicht erprobt. |
 | Projektor-Typen | Datenbank mit geprüften Datenblattwerten (Epson EB-535W, BenQ MW632ST, Optoma GT1080HDR, Epson EB-L1050U, Panasonic PT-VMZ60), eigene Typen aus dem Datenblatt (native Auflösung, Wurfverhältnis, Zoom, fester Offset oder Lens Shift), dazu allgemeine Voreinstellungen. Keine Modellierung von Objektivverzeichnung, Reste gleicht die Feinkorrektur aus. |
@@ -118,7 +130,7 @@ Bekannte Grenzen:
 - Kamera-Kalibrierung und Raumeinmessung sind mit simulierten Kamerabildern bzw. Aufnahmen getestet, an der echten Installation noch nicht.
 - Raumeinmessung mit dem Smartphone: Handy-Mikrofone sind unter etwa 100 Hz und über 10 kHz ungenau, korrigiert wird deshalb nur dazwischen. Das Handy fragt beim ersten Öffnen einmal nach dem selbst erstellten Zertifikat.
 - Auch für flache Leinwände braucht es ein (einfaches) OBJ-Modell.
-- Mehrere Rechner im Verbund werden nicht unterstützt.
+- Mehrere Rechner: ohne Genlock bis zu etwa ein Bild Versatz zwischen den Rechnern, Ton nur vom Hauptrechner. Mit echten Rechnern im Netz noch nicht erprobt.
 
 ## Kalibrierung mit Kamera
 
