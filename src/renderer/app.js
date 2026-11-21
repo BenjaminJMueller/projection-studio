@@ -202,8 +202,14 @@ function onModelPick(world, snapped) {
     const s = suggestNextImageRegion(p.points.filter((x) => x.image).map((x) => x.image), p.resolution[0], p.resolution[1]);
     image = [s.u, s.v];
   }
-  const pt = { id: p.nextPointId++, world, image, enabled: true, snapped };
-  p.points.push(pt);
+  // Kleinste freie Nummer: nach dem Löschen werden Lücken wieder belegt, statt hochzuzählen
+  const used = new Set(p.points.map((q) => q.id));
+  let id = 1;
+  while (used.has(id)) id++;
+  p.nextPointId = Math.max(...used, id) + 1;
+  const pt = { id, world, image, enabled: true, snapped };
+  const at = p.points.findIndex((q) => q.id > id);
+  if (at < 0) p.points.push(pt); else p.points.splice(at, 0, pt); // Liste bleibt nach Nummer sortiert
   S.activePointId = pt.id;
   scheduleSolve(p);
   markDirty();
@@ -2012,10 +2018,12 @@ const ART = {
 };
 
 let obPage = 0;
+let obShown = -1; // zuletzt gezeigte Seite, für die Richtung des Übergangs
 const OB_PAGES = 4;
 function onboardingSeen() { try { return localStorage.getItem('kalib.onboarded') === '1'; } catch { return false; } }
 function showOnboarding(page = 0) {
   obPage = page;
+  $('#onboarding').replaceChildren();
   $('#onboarding').classList.remove('hidden');
   renderOnboarding();
 }
@@ -2065,13 +2073,25 @@ function renderOnboarding() {
     ],
   ];
   const last = obPage === OB_PAGES - 1;
-  $('#onboarding').replaceChildren(el('div', { class: 'sheet' },
-    el('div', { class: 'body' }, ...pages[obPage]()),
-    el('div', { class: 'foot' },
-      el('div', { class: 'dots' }, ...Array.from({ length: OB_PAGES }, (_, i) => el('i', { class: i === obPage ? 'on' : '' }))),
-      !last ? el('button', { class: 'btn ghost', onclick: () => closeOnboarding(false), id: 'obSkip' }, 'Überspringen') : null,
-      obPage > 0 ? el('button', { class: 'btn', onclick: () => { obPage--; renderOnboarding(); } }, 'Zurück') : null,
-      el('button', { class: 'btn primary', id: 'obNext', disabled: obPage === 1 && !S.model, onclick: () => { if (last) closeOnboarding(true); else { obPage++; renderOnboarding(); } } }, last ? `Mit ${displayName(S.project.projectors[0])} beginnen` : 'Weiter'))));
+  const root = $('#onboarding');
+  let sheet = root.querySelector(':scope > .sheet');
+  // Blatt und Fußleiste bleiben stehen, nur der Inhalt gleitet weiter: kein sichtbares Neuladen
+  if (!sheet) {
+    sheet = el('div', { class: 'sheet' }, el('div', { class: 'body' }),
+      el('div', { class: 'foot' }, el('div', { class: 'dots' }, ...Array.from({ length: OB_PAGES }, () => el('i')))));
+    root.replaceChildren(sheet);
+    obShown = -1;
+  }
+  const body = el('div', { class: 'body' }, ...pages[obPage]());
+  if (obShown >= 0 && obShown !== obPage) body.classList.add(obPage > obShown ? 'ob-next' : 'ob-prev');
+  sheet.querySelector('.body').replaceWith(body);
+  obShown = obPage;
+  const foot = sheet.querySelector('.foot');
+  foot.querySelectorAll('.dots i').forEach((d, i) => d.classList.toggle('on', i === obPage));
+  foot.replaceChildren(foot.querySelector('.dots'),
+    !last ? el('button', { class: 'btn ghost', onclick: () => closeOnboarding(false), id: 'obSkip' }, 'Überspringen') : null,
+    obPage > 0 ? el('button', { class: 'btn', onclick: () => { obPage--; renderOnboarding(); } }, 'Zurück') : null,
+    el('button', { class: 'btn primary', id: 'obNext', disabled: obPage === 1 && !S.model, onclick: () => { if (last) closeOnboarding(true); else { obPage++; renderOnboarding(); } } }, last ? `Mit ${displayName(S.project.projectors[0])} beginnen` : 'Weiter'));
   $('#obNext').focus();
 }
 
