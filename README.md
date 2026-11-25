@@ -127,7 +127,7 @@ Getestet in der echten Installation (November 2026): MacBook Pro mit M4 Pro, 8 �
 Bekannte Grenzen:
 
 - Die Mac-App ist nicht von Apple signiert und beglaubigt, beim ersten Start ist ein Umweg nötig (siehe unten).
-- Kein automatisches Update, solange das Repository privat ist.
+- Kein automatisches Update.
 - Die Leistung mit 8 Projektoren an 2 × 4K (und erst recht mit 16) ist auf dem Zielrechner noch nicht gemessen. Die App zeigt die Bildrate je Ausgang an.
 - *Maus springt mit* und der Wechsel zwischen Bildschirmen sind auf echter Hardware unter macOS und Windows noch nicht erprobt.
 - Das Zusammenspiel mit TouchDesigner ist mit einem Nachbau der TD-Schnittstelle getestet, an einer echten Installation nur teilweise.
@@ -160,7 +160,7 @@ xattr -dr com.apple.quarantine "/Applications/Projection Studio.app"
 
 Unter Windows meldet sich eventuell SmartScreen. Dann auf *Weitere Informationen* und *Trotzdem ausführen* klicken.
 
-Ein Auto-Update ist eingebaut, aber ausgeschaltet, weil die App die Releases eines privaten Repos nicht ohne Anmeldung lesen kann. Wer es nutzen will, trägt in `package.json` unter `updateFeed` die Adresse einer öffentlich erreichbaren `latest.json` ein. Die Datei erzeugt der Build schon mit.
+Ein Auto-Update ist eingebaut, aber ausgeschaltet. Wer es nutzen will, trägt in `package.json` unter `updateFeed` die Adresse einer öffentlich erreichbaren `latest.json` ein. Die Datei erzeugt der Build schon mit.
 
 ## TouchDesigner
 
@@ -214,4 +214,4 @@ test/           Tests und Testvideo
 
 ## Lizenz
 
-Privat, alle Rechte vorbehalten, siehe [LICENSE](LICENSE). three.js steht unter MIT-Lizenz.
+[PolyForm Noncommercial 1.0.0](LICENSE): Nutzen, Verändern und Weitergeben ist für nicht-kommerzielle Zwecke erlaubt, z. B. in Lehre, Forschung, privat oder durch gemeinnützige Einrichtungen und Behörden. Kommerzielle Nutzung nur nach Absprache. three.js steht unter MIT-Lizenz.

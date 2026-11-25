@@ -129,7 +129,7 @@ Tested in the real installation (November 2026): MacBook Pro with M4 Pro, 8 × E
 Known limitations:
 
 - The Mac app is not signed or notarised by Apple, so the first launch needs a workaround (see below).
-- No automatic updates while the repository is private.
+- No automatic updates.
 - Performance with 8 projectors on 2 × 4K (let alone 16) has not yet been measured on the target machine. The app shows the frame rate per output.
 - *Mouse follows* and switching between displays have not yet been tried on real hardware under macOS and Windows.
 - The TouchDesigner integration is tested against a mock of the TD API, and only partly on a real installation.
@@ -162,7 +162,7 @@ xattr -dr com.apple.quarantine "/Applications/Projection Studio.app"
 
 On Windows, SmartScreen may complain. Click *More info* and then *Run anyway*.
 
-An auto-updater is built in but switched off, because the app cannot read the releases of a private repository without signing in. To use it, put the address of a publicly reachable `latest.json` under `updateFeed` in `package.json`. The build already produces that file.
+An auto-updater is built in but switched off. To use it, put the address of a publicly reachable `latest.json` under `updateFeed` in `package.json`. The build already produces that file.
 
 ## TouchDesigner
 
@@ -216,4 +216,4 @@ test/           tests and test video
 
 ## Licence
 
-Private, all rights reserved, see [LICENSE](LICENSE). three.js is MIT-licensed.
+[PolyForm Noncommercial 1.0.0](LICENSE): use, modification and sharing are allowed for noncommercial purposes, e.g. teaching, research, personal use, or by charitable organisations and public institutions. Commercial use only by arrangement. three.js is MIT-licensed.
