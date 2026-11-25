@@ -416,6 +416,11 @@ details.more > summary:hover { color: var(--text); }
 .quad { display: grid; grid-template-columns: repeat(2, 1fr); gap: 3px; width: 64px; aspect-ratio: 16 / 9; padding: 3px; border-radius: 5px; background: var(--bg-field); box-shadow: inset 0 0 0 0.5px var(--line-strong); flex: none; }
 .quad.l1x2 { grid-template-columns: repeat(2, 1fr); grid-template-rows: 1fr; }
 .quad.l1x1 { grid-template-columns: 1fr; }
+.quad.pick { width: 88px; gap: 2px; padding: 2px; }
+.quad.pick button { border-radius: 3px; display: grid; place-items: center; font-size: 11px; font-weight: 600; color: #fff; line-height: 1; background: var(--bg-select); min-width: 0; min-height: 0; padding: 0; cursor: pointer; }
+.quad.pick button:hover { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.quad.pick button.cur { box-shadow: inset 0 0 0 2px var(--text); }
+.quad.pick button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .quad span { border-radius: 2px; display: grid; place-items: center; font-size: 9px; font-weight: 600; color: #fff; line-height: 1; }
 
 /* ---------- Hilfe-Menü ---------- */

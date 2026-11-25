@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import { applySolutionToCamera, viewProjMatrix } from '../shared/scene.js';
 import { renderMaskCanvas } from '../shared/masks.js';
+import { lensFor } from '../core/lenses.js';
 
 let renderer = null;
 function getRenderer() {
@@ -23,18 +24,18 @@ function buildShader(n) {
   let decl = '';
   let body = '';
   for (let i = 0; i < n; i++) {
-    decl += `uniform mat4 uVP${i}; uniform sampler2D uDepth${i}; uniform vec3 uC${i}; uniform vec3 uAx${i};\n`;
+    decl += `uniform mat4 uVP${i}; uniform sampler2D uDepth${i}; uniform vec3 uC${i}; uniform vec3 uAx${i}; uniform vec2 uVis${i};\n`;
     body += `
     {
       vec4 c = uVP${i} * vec4(vWorld, 1.0);
       float wq = 0.0; float eq = 0.0;
       if (c.w > 0.0) {
         vec3 ndc = c.xyz / c.w;
-        if (abs(ndc.x) < 1.0 && abs(ndc.y) < 1.0) {
+        if (abs(ndc.x) < uVis${i}.x && abs(ndc.y) < uVis${i}.y) {
           float d = texture2D(uDepth${i}, ndc.xy * 0.5 + 0.5).r;
           float zf = linZ(ndc.z * 0.5 + 0.5), zd = linZ(d);
           if (zf <= zd * 1.01 + uBias) {
-            float e = min(1.0 - abs(ndc.x), 1.0 - abs(ndc.y));
+            float e = min(uVis${i}.x - abs(ndc.x), uVis${i}.y - abs(ndc.y));
             vec3 toP = uC${i} - vWorld; float dist = length(toP); vec3 dir = toP / dist;
             float cosRaw = abs(dot(n, dir));
             // Streiflicht: zu flach getroffene Flächen nicht bespielen
@@ -128,6 +129,9 @@ export function computeBlendMasks(model, project, { previewWidth = 480 } = {}) {
     uniforms[`uVP${i}`] = { value: viewProjMatrix(s, near, far) };
     uniforms[`uDepth${i}`] = { value: depthRTs[i].depthTexture };
     uniforms[`uC${i}`] = { value: new THREE.Vector3(...s.center) };
+    // Bildmodus mit Beschnitt: nur der sichtbare Teil des Signals zählt als bespielt
+    const vis = lensFor(p, project).visible || [1, 1];
+    uniforms[`uVis${i}`] = { value: new THREE.Vector2(vis[0], vis[1]) };
     // optische Achse in Welt = 3. Zeile von R
     uniforms[`uAx${i}`] = { value: new THREE.Vector3(s.R[2][0], s.R[2][1], s.R[2][2]).normalize() };
   });

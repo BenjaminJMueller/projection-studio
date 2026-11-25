@@ -56,7 +56,7 @@ Daraus ergaben sich die Anforderungen an dieses Werkzeug:
 
 Für die Ausgabe wird die Abbildung umgekehrt: zu jedem Ausgabepixel die Quellposition, per Newton-Verfahren. In der App geschieht das in einem Hintergrund-Thread als Tabelle (während des Ziehens grob, danach mit 480 × 270 Stützstellen, Fehler unter 0,2 px), die die GPU linear interpoliert. Der Aufwand pro Bild hängt damit nicht von der Zahl der Punkte ab. Für TouchDesigner entsteht ein GLSL-Shader mit denselben Werten als Konstanten, der die Umkehrung direkt rechnet. Er stimmt mit der App auf etwa 0,001 px überein.
 
-**Ausgabe und Wiedergabe.** Pro Ausgang ein Vollbildfenster. Jeder Projektor wird in ein eigenes Renderziel mit Multisampling gerendert und anschließend in einem Durchgang mit Feinkorrektur und Maske in sein Bildviertel gesetzt. Videos werden auf das Modell gelegt (Draufsicht oder Modell-UV). Alle Fenster folgen einer gemeinsamen Uhr und gleichen kleine Abweichungen über die Abspielgeschwindigkeit aus, größere durch Springen.
+**Ausgabe und Wiedergabe.** Pro Ausgang ein Vollbildfenster. Jeder Projektor wird in ein eigenes Renderziel mit Multisampling gerendert und anschließend in einem Durchgang mit Feinkorrektur und Maske in sein Bildviertel gesetzt. Videos werden auf das Modell gelegt (Draufsicht oder Modell-UV) und lassen sich in 90°-Schritten drehen. Alle Fenster folgen einer gemeinsamen Uhr und gleichen kleine Abweichungen über die Abspielgeschwindigkeit aus, größere durch Springen.
 
 ## Ausgänge und Video-Wall-Controller
 
@@ -72,7 +72,7 @@ Unter *Einrichten* wird je Ausgang der Modus des Controllers gewählt: *2 × 2*,
 
 Die Bildschirme werden über eine Auswahl zugewiesen. Die Ausgänge öffnen sich randlos im Vollbild auf dem gewählten Bildschirm, unter macOS und Windows. Die Zuordnung bleibt auch nach Abstecken oder Auflösungswechsel erhalten.
 
-Zum Kalibrieren gibt es zusätzlich einen optionalen **Testausgang**. Er zeigt immer den gerade gewählten Projektor im ganzen Bild, praktisch, wenn man reihum je einen Projektor zum Einrichten anschließt. Ein fest angeschlossener Projektor bekommt dagegen einen normalen HDMI-Ausgang mit *1 Projektor*. Mit der Option *Maus springt mit* wandert der Mauszeiger beim Wechsel des Projektors auf dessen Bild, auf dem Testausgang oder im richtigen Feld des Controllers.
+Zum Kalibrieren gibt es zusätzlich einen optionalen **Testausgang**. Er zeigt immer den gerade gewählten Projektor im ganzen Bild, praktisch, wenn man reihum je einen Projektor zum Einrichten anschließt. Ein fest angeschlossener Projektor bekommt dagegen einen normalen HDMI-Ausgang mit *1 Projektor*. Mit der Option *Maus springt mit* (Maus-Symbol in der 3D-Ansicht, Schalter unter *Kalibrieren*) landet der Mauszeiger nach dem Klick ins Modell direkt auf dem neuen Punkt am Projektor, beim Wechsel des Projektors auf dessen Bild, auf dem Testausgang oder im richtigen Feld des Controllers. Projektoren den Feldern zuordnen: unter *Einrichten → Bildschirme* links einen Projektor wählen und auf sein Feld klicken, danach ist der nächste dran.
 
 ## Arbeitsablauf
 
@@ -112,7 +112,7 @@ Grenzen: Ohne Hardware-Genlock liegen die Rechner bis zu etwa ein Bild auseinand
 | Auflösung je Projektor | 1920 × 1080, 1920 × 1200, 1280 × 800, 1280 × 720, 1024 × 768, 3840 × 2160 oder die native des Projektor-Typs (Auflösung des Signals) |
 | 3D-Modell | nur OBJ, Materialien und Texturen werden ignoriert. Die Demo hat rund 16 000 Dreiecke, deutlich größere Modelle sind nicht erprobt. |
 | Projektor-Typen | Datenbank mit geprüften Datenblattwerten (Epson EB-535W, BenQ MW632ST, Optoma GT1080HDR, Epson EB-L1050U, Panasonic PT-VMZ60), eigene Typen aus dem Datenblatt (native Auflösung, Wurfverhältnis, Zoom, fester Offset oder Lens Shift), dazu allgemeine Voreinstellungen. Keine Modellierung von Objektivverzeichnung, Reste gleicht die Feinkorrektur aus. |
-| Kalibrierung | von Hand ab 4 Punktpaaren (6 gut verteilte sind ideal) oder mit Kamera und Testmustern, siehe unten |
+| Kalibrierung | von Hand ab 4 Punktpaaren (6 gut verteilte sind ideal) oder mit Kamera und Testmustern, siehe unten. Mögliche Punkte (Ecken und Grate des Modells) werden im 3D-Modell angezeigt. Optional Standort des Projektors mit Toleranz vorgeben und Bildmodus des Projektors (Normal/16:9, Zoom, Nativ) einstellen. |
 | Feinkorrektur | Gitter 2 bis 33 Stützpunkte je Richtung, optional Bézier-Anfasser, bis zu 200 freie Punkte je Projektor |
 | Masken | automatische Überblendung, eigene Masken als Vielecke mit weicher Kante |
 | Video | Playlist, Start/Pause mit Leertaste, Bildrate einstellbar (frei, 24, 25, 30, 50, 60), Anzeige der aktuellen Bildrate. Formate, die Chromium abspielt: H.264 und AAC in MP4/MOV, VP8, VP9 und AV1 in WebM/MKV. H.265/HEVC nur, wenn das System es in Hardware dekodiert. ProRes, HAP, DXV und Bildsequenzen werden nicht unterstützt. Zwischen zwei Videos der Playlist kann ein Bild hängen bleiben. Die mögliche Auflösung hängt von Decoder und Grafikkarte ab. |
@@ -121,6 +121,8 @@ Grenzen: Ohne Hardware-Genlock liegen die Rechner bis zu etwa ein Bild auseinand
 | TouchDesigner | Export (JSON, Masken als PNG, GLSL-Shader, Python-Skript) und Live-Verbindung per OSC |
 | Sprachen | Deutsch (Standard), Englisch |
 | Systeme | macOS 11 oder neuer (Apple Silicon und Intel), Windows 10/11 64 Bit; Grafikkarte mit WebGL 2 |
+
+Getestet in der echten Installation (November 2026): MacBook Pro mit M4 Pro, 8 × Epson EB-535W, zwei HDMI-Splitter bzw. Video-Wall-Controller LogiLink HD0054 (je 2 × 2). Kalibrieren und Abspielen haben dort funktioniert.
 
 Bekannte Grenzen:
 

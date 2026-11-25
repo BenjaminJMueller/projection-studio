@@ -31,3 +31,21 @@ test('Anschluss direkt: je Ausgang ein Projektor, höchstens 4 Ausgänge', () =>
   assert.deepEqual(p.projectors.map((x) => `${x.output}${x.quadrant}`), ['A0', 'A1', 'A2', 'A3', 'B0', 'B1', 'B2', 'B3']);
   assert.ok(p.outputs.some((o) => o.solo));
 });
+
+test('Neue Texte: Zuordnung, Drehen, Maus', () => {
+  setLang('en');
+  assert.equal(tr('P3 → HDMI A · oben rechts'), 'P3 → HDMI A · top right');
+  assert.equal(tr('P3 → HDMI A · oben rechts · P2 tauscht den Platz'), 'P3 → HDMI A · top right · P2 swaps places');
+  assert.equal(tr('HDMI B · unten links: frei'), 'HDMI B · bottom left: free');
+  assert.equal(tr('90° rechts'), '90° clockwise');
+  assert.equal(tr('90° links'), '90° counterclockwise');
+  assert.equal(tr('Drehen'), 'Rotate');
+  setLang('de');
+});
+
+test('Bildmodus-Hinweis mit Zahlen', () => {
+  setLang('en');
+  assert.match(tr('So wie im Menü des Projektors unter Seitenverhältnis eingestellt. Panel 1280 × 800, Signal 1920 × 1080. Bei Zoom und Nativ schneidet der Projektor einen Teil des Signals ab, das berücksichtigen Kalibrierung und Überblendung. „Voll“ (gestreckt) wird nicht unterstützt.'), /^As set in the projector menu.*Panel 1280 × 800, signal 1920 × 1080/);
+  assert.equal(tr('± 25 cm'), '± 25 cm');
+  setLang('de');
+});

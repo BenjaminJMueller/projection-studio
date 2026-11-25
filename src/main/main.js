@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import dgram from 'node:dgram';
 import { oscMessage } from '../core/osc.js';
 import { checkForUpdates, updatesEnabled } from './updater.js';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { tr, setLang, getLang, LANGS } from '../shared/i18n.js';
 import { startMeasureServer, stopMeasureServer, phoneRecord, phoneMessage } from './measureServer.js';
 import { startMaster, startClient } from './cluster.js';
@@ -217,6 +217,23 @@ ipcMain.handle('measure:record', async (_e, seconds) => {
 });
 ipcMain.handle('lang:set', (_e, l) => changeLang(l));
 
+/**
+ * Windows: eine PowerShell bleibt offen und bekommt die Positionen über stdin. Der erste Start
+ * (Add-Type) dauert etwa eine Sekunde, danach springt die Maus ohne Verzögerung.
+ */
+let winPs = null;
+function winCursor(x, y) {
+  if (!winPs || winPs.exitCode != null || winPs.killed) {
+    winPs = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-NoLogo', '-Command', '-'], { windowsHide: true, stdio: ['pipe', 'ignore', 'ignore'] });
+    winPs.on('error', () => { winPs = null; });
+    winPs.stdin.on('error', () => {});
+    winPs.stdin.write(`Add-Type -Name M -Namespace W -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);'\r\n`);
+    app.once('will-quit', () => winPs?.kill());
+  }
+  winPs.stdin.write(`[void][W.M]::SetCursorPos(${x}, ${y})\r\n`);
+  return true;
+}
+
 /** Mauszeiger setzen (x, y in Bildschirmpunkten wie screen.getAllDisplays). Ohne native Erweiterung. */
 ipcMain.handle('cursor:move', (_e, { x, y }) => new Promise((resolve) => {
   const done = (err) => resolve(!err);
@@ -225,8 +242,7 @@ ipcMain.handle('cursor:move', (_e, { x, y }) => new Promise((resolve) => {
     execFile('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `ObjC.import('CoreGraphics'); $.CGWarpMouseCursorPosition({ x: ${Number(x)}, y: ${Number(y)} }); $.CGAssociateMouseAndMouseCursorPosition(true);`], done);
   } else if (process.platform === 'win32') {
     const p = screen.dipToScreenPoint({ x: Number(x), y: Number(y) });
-    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-      `Add-Type -Name M -Namespace W -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);'; [W.M]::SetCursorPos(${Math.round(p.x)}, ${Math.round(p.y)})`], { windowsHide: true }, done);
+    resolve(winCursor(Math.round(p.x), Math.round(p.y)));
   } else {
     execFile('xdotool', ['mousemove', String(Math.round(x)), String(Math.round(y))], done);
   }

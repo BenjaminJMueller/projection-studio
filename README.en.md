@@ -58,7 +58,7 @@ This led to the requirements for this tool:
 
 For output the mapping is inverted: for every output pixel its source position, using Newton's method. In the app this happens in a background thread as a lookup table (coarse while dragging, then 480 × 270 samples, error below 0.2 px) that the GPU interpolates linearly. The cost per frame therefore does not depend on the number of points. For TouchDesigner a GLSL shader is generated with the same values as constants, computing the inverse directly. It matches the app to about 0.001 px.
 
-**Output and playback.** One full-screen window per output. Each projector is rendered into its own multisampled render target and then placed into its cell in a single pass together with fine correction and mask. Video is mapped onto the model (top view or model UVs). All windows follow a shared clock and correct small drift via playback rate, larger drift by seeking.
+**Output and playback.** One full-screen window per output. Each projector is rendered into its own multisampled render target and then placed into its cell in a single pass together with fine correction and mask. Video is mapped onto the model (top view or model UVs) and can be rotated in 90° steps. All windows follow a shared clock and correct small drift via playback rate, larger drift by seeking.
 
 ## Outputs and video wall controllers
 
@@ -74,7 +74,7 @@ Under *Set up* the controller mode is chosen per output: *2 × 2*, *2 side by si
 
 Displays are assigned from a menu. Outputs open borderless and full screen on the chosen display, on macOS and Windows. The assignment is kept after unplugging or a change of resolution.
 
-For calibration there is also an optional **test output**. It always shows the currently selected projector full frame, handy when connecting one projector at a time for setup. A permanently connected projector gets a normal HDMI output with *1 projector* instead. With the *Mouse follows* option, the mouse pointer jumps to that projector's image when switching projectors, on the test output or in the right cell of the controller.
+For calibration there is also an optional **test output**. It always shows the currently selected projector full frame, handy when connecting one projector at a time for setup. A permanently connected projector gets a normal HDMI output with *1 projector* instead. With the *Mouse follows* option (mouse icon in the 3D view, switch under *Calibrate*), the mouse pointer lands right on the new point on the projector after a click in the model, and on the projector's image when switching projectors, on the test output or in the right cell of the controller. To assign projectors to cells: under *Set up → Displays* select a projector on the left and click its cell, then the next one is up.
 
 ## Workflow
 
@@ -114,7 +114,7 @@ Limits: without hardware genlock the computers can be up to about one frame apar
 | Resolution per projector | 1920 × 1080, 1920 × 1200, 1280 × 800, 1280 × 720, 1024 × 768, 3840 × 2160 or the native resolution of the projector type (resolution of the signal) |
 | 3D model | OBJ only; materials and textures are ignored. The demo has about 16,000 triangles; much larger models are untested. |
 | Projector types | database of verified datasheet values (Epson EB-535W, BenQ MW632ST, Optoma GT1080HDR, Epson EB-L1050U, Panasonic PT-VMZ60), custom types from a datasheet (native resolution, throw ratio, zoom, fixed offset or lens shift), plus generic presets. Lens distortion is not modelled; fine correction compensates the rest. |
-| Calibration | by hand from 4 point pairs (6 well-spread points are ideal) or with a camera and test patterns, see below |
+| Calibration | by hand from 4 point pairs (6 well-spread points are ideal) or with a camera and test patterns, see below. Possible points (corners and ridges of the model) are shown in the 3D model. Optionally set the projector's location with a tolerance and the projector's image mode (Normal/16:9, Zoom, Native). |
 | Fine correction | grid of 2 to 33 control points per direction, optional Bézier handles, up to 200 free points per projector |
 | Masks | automatic blending, custom polygon masks with soft edges |
 | Video | playlist, play/pause with the space bar, adjustable frame rate (free, 24, 25, 30, 50, 60), display of the current frame rate. Formats Chromium can play: H.264 and AAC in MP4/MOV, VP8, VP9 and AV1 in WebM/MKV. H.265/HEVC only where the system decodes it in hardware. ProRes, HAP, DXV and image sequences are not supported. A frame may hold briefly between two playlist videos. The achievable resolution depends on decoder and graphics card. |
@@ -123,6 +123,8 @@ Limits: without hardware genlock the computers can be up to about one frame apar
 | TouchDesigner | export (JSON, masks as PNG, GLSL shader, Python script) and live link via OSC |
 | Languages | German (default), English |
 | Systems | macOS 11 or later (Apple Silicon and Intel), Windows 10/11 64-bit; graphics card with WebGL 2 |
+
+Tested in the real installation (November 2026): MacBook Pro with M4 Pro, 8 × Epson EB-535W, two HDMI splitters / video wall controllers LogiLink HD0054 (2 × 2 each). Calibration and playback worked there.
 
 Known limitations:
 

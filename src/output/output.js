@@ -168,6 +168,12 @@ function planarGeometry() {
   g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   return (planarGeom = g);
 }
+/** Video drehen (Wiedergabe → Drehen, im Uhrzeigersinn): nur die Texturmatrix, kostet nichts. */
+function rotateVideo() {
+  const t = mats.video.map;
+  const r = -(((Number(st.project.playback?.rotate) || 0) % 360) * Math.PI) / 180;
+  if (t && t.rotation !== r) { t.center.set(0.5, 0.5); t.rotation = r; }
+}
 const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff });
 
 function resize() {
@@ -315,6 +321,7 @@ function drawFrame(full = true) {
       applySolutionToCamera(cam, p.solution, st.model.radius / 200, st.model.radius * 20);
       const rt = rtFor(p.id, w, h);
       mesh.geometry = mode === 'video' && st.project.playback?.mapping !== 'uv' ? planarGeometry() : st.model.geometry;
+      if (mode === 'video') rotateVideo();
       mesh.material = mode === 'video' ? mats.video : mode === 'white' ? mats.white : mode === 'grid' ? (mats.grid ||= new THREE.MeshBasicMaterial({ map: (gridTex ||= makeUvGridTexture()), side: THREE.DoubleSide })) : mats.black;
       lines.visible = mode === 'edges';
       lineMat.color.set(active ? '#ffffff' : '#bbbbbb');

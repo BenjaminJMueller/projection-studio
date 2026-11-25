@@ -109,3 +109,36 @@ export function debugScenario(seed, opts) {
   const res = solveProjector({ points: sc.points, width: W, height: H, lens });
   return { sc, res };
 }
+
+test('Vorgegebener Standort: Lösung bleibt in der Nähe, falscher Standort wird abgelehnt', () => {
+  let tested = 0;
+  for (let seed = 300; seed < 340 && tested < 4; seed++) {
+    const sc = makeScenario(seed, { n: 6, noise: 1 });
+    if (!sc) continue;
+    tested++;
+    const ok = solveProjector({ points: sc.points, width: W, height: H, lens, positionPrior: { center: sc.center.map((c) => c + 0.1), sigma: 0.3 } });
+    assert.ok(ok.ok, ok.message);
+    assert.ok(norm3(sub3(ok.solution.center, sc.center)) < 0.9, 'Lösung im Toleranzbereich');
+    // Standort 6 m daneben mit kleiner Toleranz: keine unsinnige Lösung
+    const far = solveProjector({ points: sc.points, width: W, height: H, lens, positionPrior: { center: [sc.center[0] + 6, sc.center[1], sc.center[2]], sigma: 0.25 } });
+    assert.ok(!far.ok || norm3(sub3(far.solution.center, [sc.center[0] + 6, sc.center[1], sc.center[2]])) <= 0.75);
+  }
+  assert.ok(tested >= 2);
+});
+
+import { lensFor, lensFromSpec, PROJECTOR_DB } from '../src/core/lenses.js';
+test('Bildmodus am Projektor: Normal, Zoom und Nativ beim EB-535W', () => {
+  const spec = PROJECTOR_DB.find((x) => x.id === 'epson-eb-535w');
+  const fit = lensFromSpec(spec, [1920, 1080], 'fit');
+  assert.ok(Math.abs(fit.cyFrac - lens.cyFrac) < 0.002, 'Normal passt zur Voreinstellung');
+  assert.deepEqual(fit.visible, [1, 1]);
+  const fill = lensFromSpec(spec, [1920, 1080], 'fill');
+  assert.ok(Math.abs(fill.visible[0] - 0.9) < 1e-6 && fill.visible[1] === 1);
+  assert.ok(Math.abs(fill.throwNominal - 0.48 * 0.9) < 1e-6);
+  const nat = lensFromSpec(spec, [1920, 1080], 'native');
+  assert.ok(Math.abs(nat.visible[0] - 2 / 3) < 1e-6 && Math.abs(nat.visible[1] - 800 / 1080) < 1e-6);
+  assert.ok(Math.abs(nat.cyFrac - 0.957) < 0.002);
+  // Voreinstellung + Bildmodus
+  assert.equal(lensFor({ lens: 'epson-eb535w-1080p', resolution: [1920, 1080] }).cyFrac, lens.cyFrac);
+  assert.ok(Math.abs(lensFor({ lens: 'epson-eb535w-1080p', resolution: [1920, 1080], imageMode: 'native' }).cyFrac - 0.957) < 0.002);
+});

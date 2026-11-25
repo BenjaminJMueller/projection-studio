@@ -30,11 +30,36 @@ const EN = {
   'Modus des Video-Wall-Controllers, z. B. 2 × 2 beim LogiLink HD0054. Die Projektoren werden der Reihe nach auf die Felder verteilt.':
     'Mode of the video wall controller, e.g. 2 × 2 on the LogiLink HD0054. Projectors are assigned to the cells in order.',
   'Kein Modell': 'No model', 'OBJ-Datei wählen': 'Choose OBJ file', 'Ändern …': 'Change …', 'Wählen …': 'Choose …', '3D-Modell': '3D model',
-  'Bildschirme': 'Displays', 'Jeder Ausgang der Grafikkarte wird in Viertel geteilt, jedes Viertel geht an einen Projektor.':
-    'Each graphics output is split into cells, each cell feeds one projector.',
+  'Bildschirme': 'Displays',
+  'Jeder Ausgang der Grafikkarte wird in Viertel geteilt, jedes Viertel geht an einen Projektor. Zuordnen: links einen Projektor wählen und hier auf sein Feld klicken, danach ist der nächste Projektor dran. Das Testbild „Nummer“ unter „Ausgabe“ zeigt auf jedem Projektor seine Nummer.':
+    'Each graphics output is split into cells, each cell feeds one projector. To assign: select a projector on the left and click its cell here, then the next projector is up. The “Number” test image under “Output” shows each projector’s number on the projector itself.',
   'Maus springt mit': 'Mouse follows',
-  'Beim Wechsel des Projektors springt der Mauszeiger auf dessen Bild am Ausgang. So muss man die Maus auf den Projektionen nicht suchen.':
-    'When you switch projectors, the mouse pointer jumps to its image on the output, so you never have to hunt for it on the projections.',
+  'Nach dem Klick ins Modell springt der Mauszeiger auf die Stelle des neuen Punkts am Ausgang, beim Wechsel des Projektors auf dessen Bild. So muss man die Maus auf den Projektionen nicht suchen. Auch über das Maus-Symbol in der 3D-Ansicht schaltbar.':
+    'After a click in the model, the mouse pointer jumps to the new point on the output; when you switch projectors, it jumps to that projector’s image. So you never have to hunt for it on the projections. Also available as the mouse icon in the 3D view.',
+  'Maus springt mit: nach dem Klick ins Modell landet der Mauszeiger auf dem Punkt am Projektor':
+    'Mouse follows: after a click in the model, the pointer lands on the point on the projector',
+  'Mögliche Kalibrierpunkte zeigen: Ecken und Grate des Modells, an denen ein Klick einrastet':
+    'Show possible calibration points: corners and ridges of the model where a click snaps',
+  'Kalibrierpunkte zeigen': 'Show calibration points',
+  'Maus springt zum Projektor': 'Mouse jumps to the projector',
+  'Maus springt zum Projektor, sobald die Ausgänge geöffnet sind': 'Mouse jumps to the projector once the outputs are open',
+  'Maus bleibt, wo sie ist': 'Mouse stays where it is',
+  'Standort': 'Location', 'Standort vorgeben': 'Set location', 'Aus: der Projektor darf überall stehen': 'Off: the projector may be anywhere',
+  'Position (m)': 'Position (m)', 'Toleranz': 'Tolerance', 'Übernehmen': 'Take over',
+  'Aktuelle Position aus der Kalibrierung übernehmen': 'Take the current position from the calibration',
+  'Wie genau der Standort bekannt ist. Kleiner heißt: die Kalibrierung bleibt näher an dieser Position.':
+    'How precisely the location is known. Smaller means the calibration stays closer to this position.',
+  'Wo der Projektor ungefähr steht. Lösungen, die weiter als die dreifache Toleranz davon entfernt liegen, werden verworfen. So tauchen unsinnige Positionen nicht mehr auf. Bei einem Spiegel zählt das Spiegelbild des Objektivs, also die Stelle hinter dem Spiegel. Am einfachsten nach einer guten Kalibrierung „Übernehmen“ wählen und die Toleranz klein stellen.':
+    'Roughly where the projector is. Solutions more than three times the tolerance away are discarded, so implausible positions no longer appear. With a mirror, the mirror image of the lens counts, i.e. the spot behind the mirror. Easiest: after a good calibration choose “Take over” and set a small tolerance.',
+  'Keine Lösung passt zum vorgegebenen Standort. Standort, Toleranz und Punkte prüfen.': 'No solution fits the given location. Check location, tolerance and points.',
+  'Bildmodus': 'Image mode', 'Normal / 16:9 (ganzes Bild)': 'Normal / 16:9 (whole image)', 'Zoom (füllt das Panel, schneidet ab)': 'Zoom (fills the panel, crops)', 'Nativ (1:1, schneidet ab)': 'Native (1:1, crops)',
+  'So wie im Menü des Projektors unter Seitenverhältnis eingestellt. Panel {0} × {1}, Signal {2} × {3}. Bei Zoom und Nativ schneidet der Projektor einen Teil des Signals ab, das berücksichtigen Kalibrierung und Überblendung. „Voll“ (gestreckt) wird nicht unterstützt.':
+    'As set in the projector menu under aspect ratio. Panel {0} × {1}, signal {2} × {3}. With Zoom and Native the projector crops part of the signal; calibration and blending take that into account. “Full” (stretched) is not supported.',
+  'Nach dem Klick ins Modell springt der Mauszeiger auf die Stelle des neuen Punkts am Ausgang. Dort klicken oder ziehen, dann mit der Maus zurück ins Modell.':
+    'After a click in the model, the mouse pointer jumps to the new point on the output. Click or drag there, then move the mouse back into the model.',
+  'Drehen': 'Rotate', '{0}° rechts': '{0}° clockwise', '{0}° links': '{0}° counterclockwise',
+  'Dreht das Video auf allen Ausgängen, z. B. wenn es nach dem Umstecken oder durch die Lage des Modells auf dem Kopf steht. Die Kalibrierung bleibt unverändert.':
+    'Rotates the video on all outputs, e.g. when it is upside down after re-plugging or because of how the model is oriented. The calibration stays unchanged.',
   'Name': 'Name', 'Verwenden': 'Use', 'Ausgang': 'Output', 'Keiner': 'None', 'Bildbereich': 'Image area', 'Auflösung': 'Resolution',
   'Auflösung des Signals, das der Beamer bekommt, nicht die native Panelauflösung.': 'Resolution of the signal the projector receives, not its native panel resolution.',
   'Objektiv': 'Lens', 'Montage': 'Mounting', 'Automatisch': 'Automatic', 'Achse unter dem Bild': 'Axis below image', 'Achse über dem Bild': 'Axis above image',
@@ -552,6 +577,8 @@ const PATTERNS = [
   [/^Punkt (\S*) passt nicht \((.+) px\)$/, (m) => `Point ${m[1]} does not fit (${m[2]} px)`],
   [/^Punkt (\d+)$/, (m) => `Point ${m[1]}`],
   [/^Gruppe (\d+)$/, (m) => `Group ${m[1]}`],
+  [/^(.+) tauscht den Platz$/, (m) => `${tr(m[1])} swaps places`],
+  [/^(.+): frei$/, (m) => `${tr(m[1])}: free`],
   [/^(.+) → (.+)$/, (m) => `${tr(m[1])} → ${tr(m[2])}`],
 ];
 
