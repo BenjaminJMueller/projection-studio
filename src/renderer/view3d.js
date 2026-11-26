@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { makeCoverageMaterial, frustumLines, viewProjMatrix, applySolutionToCamera } from '../shared/scene.js';
+import { lensFor } from '../core/lenses.js';
 
 export class View3D {
   constructor(canvas, handlers) {
@@ -128,6 +129,8 @@ export class View3D {
       u.uViewProj.value[k].copy(viewProjMatrix(p.solution));
       u.uColor.value[k].set(p.color);
       u.uRes.value[k].set(p.solution.width, p.solution.height);
+      const vis = lensFor(p, project).visible || [1, 1];
+      u.uVis.value[k].set(vis[0], vis[1]);
       if (p.id === activeId) activeIdx = k;
       k++;
     }
@@ -155,7 +158,7 @@ export class View3D {
       if (!s) return;
       const dist = Math.hypot(...s.center.map((c, i) => c - this.model.center.getComponent(i)));
       const geom = new THREE.BufferGeometry();
-      geom.setAttribute('position', new THREE.BufferAttribute(frustumLines(s, dist * 1.05), 3));
+      geom.setAttribute('position', new THREE.BufferAttribute(frustumLines(s, dist * 1.05, lensFor(p, this.project).visible), 3));
       const active = p.id === this.activeId;
       const line = new THREE.LineSegments(geom, new THREE.LineBasicMaterial({ color: p.color, transparent: true, opacity: active ? 1 : 0.45 }));
       g.add(line);

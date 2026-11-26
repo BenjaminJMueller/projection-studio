@@ -348,7 +348,7 @@ function refresh(light = false) {
     view.calibrating = S.mode === 'calibrate' || !!S.pickCenter; // Einrast-Ecken nur beim Punkte-Setzen zeigen
     view.update(S.project, S.activeId, S.activePointId, S.pendingRepick, showSuggest() ? S.results[S.activeId]?.candidates : null);
     preview.mode = previewMode();
-    preview.set(active(), S.activePointId, { activeHandle: S.activeHandle, activePin: S.activePin, suggest: showSuggest() ? S.results[S.activeId]?.suggest : null, activeMaskId: S.activeMaskId, blendImg: blendImgFor(S.activeId) });
+    preview.set(active(), S.activePointId, { visible: lensFor(active(), S.project).visible, activeHandle: S.activeHandle, activePin: S.activePin, suggest: showSuggest() ? S.results[S.activeId]?.suggest : null, activeMaskId: S.activeMaskId, blendImg: blendImgFor(S.activeId) });
     $('#previewCaption').replaceChildren(el('span', {}, el('b', {}, displayName(active())), outputLabel(active())), el('span', {}, `${active().resolution[0]} × ${active().resolution[1]}`));
     $('#btnUndo').disabled = !undoStack.length;
     $('#btnRedo').disabled = !redoStack.length;
@@ -1241,25 +1241,22 @@ function coach(num, title, text, ok = false) {
   $('#guide').replaceChildren(el('span', { class: `num ${ok ? 'ok' : ''}` }, num), el('span', { class: 't' }, el('b', {}, title), text ? el('span', {}, text) : null));
 }
 
+/**
+ * Statuszeile unten in der 3D-Ansicht. Nur, solange ein Klick ins Modell etwas Besonderes tut
+ * (Bildmitte wählen, Punkt neu setzen, Maske zeichnen). Erklärungen stehen in den Info-Knöpfen.
+ */
 function renderGuide() {
   const g = $('#guide');
   const p = active();
-  const n = enabledPoints(p);
-  const name = displayName(p);
-  if (!S.model) return coach('!', 'Kein 3D-Modell', 'Unter „Einrichten“ laden.');
+  if (!S.model) return g.replaceChildren();
   if (S.mode === 'blend') {
     const m = p.masks.find((x) => x.id === S.activeMaskId);
     if (m && !m.closed) return coach(String(m.points.length), 'Maske zeichnen', 'Rechts Ecken setzen, ersten Punkt anklicken zum Schließen.');
-    if (!Object.keys(S.blendImages).length) return coach('3', 'Masken berechnen', 'Rechts, sobald alles kalibriert ist.');
     return g.replaceChildren();
   }
   if (S.mode !== 'calibrate' || warpEditing()) return g.replaceChildren();
-  if (S.pickCenter) return coach(ic('focus', 16), 'Bildmitte wählen', `Ungefähr die Bildmitte von ${name} anklicken.`);
+  if (S.pickCenter) return coach(ic('focus', 16), 'Bildmitte wählen', `Ungefähr die Bildmitte von ${displayName(p)} anklicken.`);
   if (S.pendingRepick) return coach(String(S.activePointId), `Punkt ${S.activePointId} neu setzen`, 'Die richtige Stelle im Modell anklicken.');
-  if (n === 0 && !activePoint()) return coach('1', 'Ecke im Modell anklicken', `Weit außen im Bild von ${name}.`);
-  if (activePoint() && !p.solution) return coach(String(Math.max(n, 1)), 'Fadenkreuz auf dieselbe Ecke schieben', 'Ziehen oder Pfeiltasten.');
-  if (!p.solution) return coach(String(n + 1), 'Nächste Ecke anklicken', 'Weit weg von den bisherigen.');
-  if (n < 6 || !isGood(S.results[p.id]?.quality)) return coach(String(n + 1), 'Kanten an der Decke prüfen', 'Passt es nicht: Punkt an einem blauen + setzen.');
   g.replaceChildren();
 }
 
@@ -2074,14 +2071,15 @@ function clearPoints() {
 // ------------------------------------------------------------------ Einführung
 const ACC = 'var(--accent)';
 const ART = {
-  welcome: `<svg width="220" height="120" viewBox="0 0 220 120" fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M14 70 Q60 6 110 30 Q160 6 206 70" stroke="currentColor" stroke-width="2" opacity=".55"/>
-    <path d="M40 70 Q75 34 110 46 Q145 34 180 70" stroke="currentColor" stroke-width="1.5" opacity=".35"/>
-    <path d="M110 30 V46" stroke="currentColor" stroke-width="1.5" opacity=".35"/>
-    <path d="M62 112 L30 56 M62 112 L96 40" stroke="#e5645c" stroke-width="1.5"/><path d="M30 56 Q60 30 96 40" stroke="#e5645c" stroke-width="2" opacity=".6"/>
-    <path d="M158 112 L124 40 M158 112 L190 56" stroke="#4b9ddb" stroke-width="1.5"/><path d="M124 40 Q160 30 190 56" stroke="#4b9ddb" stroke-width="2" opacity=".6"/>
-    <path d="M110 112 L86 44 M110 112 L134 44" stroke="#5bb37b" stroke-width="1.5" opacity=".9"/>
-    <circle cx="62" cy="112" r="5" fill="#e5645c"/><circle cx="110" cy="112" r="5" fill="#5bb37b"/><circle cx="158" cy="112" r="5" fill="#4b9ddb"/>
+  // Einfarbig: Gewölbe in Grau, ein Projektor mit seinem Lichtkegel in der Akzentfarbe
+  welcome: `<svg width="210" height="112" viewBox="0 0 240 128" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 62 Q66 -2 120 26 Q174 -2 228 62" stroke="currentColor" stroke-width="1.6" opacity=".5"/>
+    <path d="M40 62 Q80 26 120 38 Q160 26 200 62" stroke="currentColor" stroke-width="1.2" opacity=".28"/>
+    <path d="M120 26 V38 M12 62 H228" stroke="currentColor" stroke-width="1.2" opacity=".22"/>
+    <path d="M120 118 L66 22 Q93 12 120 26 Q147 12 174 22 Z" fill="${ACC}" opacity=".1"/>
+    <path d="M120 118 L66 22 M120 118 L174 22" stroke="${ACC}" stroke-width="1.2" opacity=".55"/>
+    <path d="M66 22 Q93 12 120 26 Q147 12 174 22" stroke="${ACC}" stroke-width="2.2"/>
+    <rect x="109" y="112" width="22" height="11" rx="3" fill="${ACC}"/>
   </svg>`,
   pick: `<svg viewBox="0 0 160 120" width="100%" height="100%" fill="none" stroke-linecap="round" stroke-linejoin="round">
     <path d="M18 98 Q80 10 142 98" stroke="#8e8e93" stroke-width="2"/><path d="M48 98 Q80 50 112 98" stroke="#8e8e93" stroke-width="1.5" opacity=".6"/>
@@ -2098,9 +2096,9 @@ const ART = {
   </svg>`,
   check: `<svg viewBox="0 0 160 120" width="100%" height="100%" fill="none" stroke-linecap="round" stroke-linejoin="round">
     <path d="M18 70 Q80 4 142 70" stroke="#8e8e93" stroke-width="2"/>
-    <path d="M80 112 L30 52 M80 112 L130 52" stroke="#e5645c" stroke-width="1.5"/><path d="M30 52 Q80 8 130 52" stroke="#e5645c" stroke-width="2.5" opacity=".7"/>
-    <circle cx="80" cy="112" r="5" fill="#e5645c"/>
-    <circle cx="128" cy="96" r="12" fill="#32c766"/><path d="M122 96 l4 4 8 -8" stroke="#fff" stroke-width="2"/>
+    <path d="M80 112 L30 52 M80 112 L130 52" stroke="${ACC}" stroke-width="1.2" opacity=".5"/><path d="M30 52 Q80 8 130 52" stroke="${ACC}" stroke-width="2.5"/>
+    <rect x="70" y="106" width="20" height="10" rx="3" fill="${ACC}"/>
+    <circle cx="128" cy="96" r="11" fill="${ACC}"/><path d="M122.5 96 l3.8 3.8 7.2 -7.2" stroke="#fff" stroke-width="2"/>
   </svg>`,
 };
 
@@ -2128,11 +2126,12 @@ function renderOnboarding() {
     () => [
       el('div', { class: 'hero', html: ART.welcome }),
       el('h1', { id: 'obTitle' }, 'Willkommen'),
-      el('p', { class: 'lead' }, 'Richte deine Projektoren am 3D-Modell aus, blende sie weich ineinander und gib das Ergebnis direkt aus.'),
-      feat('monitor', 'Einrichten', 'Modell laden und festlegen, welcher Bildschirm welche Projektoren speist.'),
-      feat('target', 'Kalibrieren', 'Pro Projektor ein paar Ecken im Modell anklicken und auf der echten Decke treffen.'),
-      feat('blend', 'Überblenden', 'Überlappungen, Bogenseiten und Helligkeit werden automatisch ausgeglichen.'),
-      feat('projector', 'Ausgabe', 'Testbilder auf den Projektoren zeigen oder an TouchDesigner übergeben.'),
+      el('p', { class: 'lead' }, 'Projection Studio richtet mehrere Projektoren an einem 3D-Modell des Raums aus, blendet sie zu einem Bild zusammen und spielt Inhalte darauf ab. Vier Schritte:'),
+      el('div', { class: 'feats' },
+      feat('monitor', 'Einrichten', '3D-Modell des Raums laden und festlegen, welcher HDMI-Ausgang welche Projektoren speist, direkt oder über einen Video-Wall-Controller.'),
+      feat('target', 'Kalibrieren', 'Pro Projektor einige Ecken im Modell anklicken und dieselbe Stelle im Raum treffen. Daraus ergeben sich Position, Ausrichtung und Objektiv.'),
+      feat('blend', 'Überblenden', 'Weiche Übergänge in den Überlappungen und gleichmäßige Helligkeit, automatisch aus der Kalibrierung.'),
+      feat('projector', 'Ausgabe', 'Videos über alle Projektoren abspielen oder Kalibrierung und Masken an TouchDesigner übergeben.')),
     ],
     () => [
       el('h1', { id: 'obTitle' }, 'Womit möchtest du starten?'),
@@ -2154,8 +2153,8 @@ function renderOnboarding() {
       el('h1', { id: 'obTitle', style: 'margin-top:8px' }, 'So setzt du einen Punkt'),
       el('p', { class: 'lead' }, 'Vier Punkte pro Projektor reichen für eine erste Lösung. Sechs gut verteilte sind ideal.'),
       el('div', { class: 'how' },
-        el('div', {}, el('div', { class: 'pic', html: ART.pick }), el('b', {}, el('span', { class: 'n' }, '1'), 'Ecke anklicken'), el('span', {}, 'Eine markante Ecke im 3D-Modell anklicken.')),
-        el('div', {}, el('div', { class: 'pic', html: ART.move }), el('b', {}, el('span', { class: 'n' }, '2'), 'Fadenkreuz schieben'), el('span', {}, 'Am Projektor dieselbe Ecke an der Decke treffen, mit Maus oder Pfeiltasten.')),
+        el('div', {}, el('div', { class: 'pic', html: ART.pick }), el('b', {}, el('span', { class: 'n' }, '1'), 'Ecke anklicken'), el('span', {}, 'Einen der weißen Punkte im 3D-Modell anklicken, am besten weit außen im Bild des Projektors.')),
+        el('div', {}, el('div', { class: 'pic', html: ART.move }), el('b', {}, el('span', { class: 'n' }, '2'), 'Fadenkreuz schieben'), el('span', {}, 'Die Maus springt auf den Projektor. Dort das Fadenkreuz auf dieselbe Ecke im Raum ziehen, fein mit den Pfeiltasten.')),
         el('div', {}, el('div', { class: 'pic', html: ART.check }), el('b', {}, el('span', { class: 'n' }, '3'), 'Prüfen'), el('span', {}, 'Ab vier Punkten erscheinen die Kanten. Wo es nicht passt, nachsetzen.'))),
     ],
   ];
@@ -2164,21 +2163,22 @@ function renderOnboarding() {
   let sheet = root.querySelector(':scope > .sheet');
   // Blatt und Fußleiste bleiben stehen, nur der Inhalt gleitet weiter: kein sichtbares Neuladen
   if (!sheet) {
-    sheet = el('div', { class: 'sheet' }, el('div', { class: 'body' }),
+    sheet = el('div', { class: 'sheet' },
+      el('button', { class: 'sheet-close', id: 'obClose', type: 'button', 'aria-label': 'Einführung schließen', 'data-tip': 'Schließen (Esc)', onclick: () => closeOnboarding(false), html: icon('close', 14) }),
+      el('div', { class: 'body' }),
       el('div', { class: 'foot' }, el('div', { class: 'dots' }, ...Array.from({ length: OB_PAGES }, () => el('i')))));
     root.replaceChildren(sheet);
     obShown = -1;
   }
   const body = el('div', { class: 'body' }, ...pages[obPage]());
-  if (obShown >= 0 && obShown !== obPage) body.classList.add(obPage > obShown ? 'ob-next' : 'ob-prev');
+  if (obShown >= 0 && obShown !== obPage) body.classList.add('ob-swap');
   sheet.querySelector('.body').replaceWith(body);
   obShown = obPage;
   const foot = sheet.querySelector('.foot');
   foot.querySelectorAll('.dots i').forEach((d, i) => d.classList.toggle('on', i === obPage));
-  foot.replaceChildren(foot.querySelector('.dots'),
-    !last ? el('button', { class: 'btn ghost', onclick: () => closeOnboarding(false), id: 'obSkip' }, 'Überspringen') : null,
+  foot.replaceChildren(...[foot.querySelector('.dots'),
     obPage > 0 ? el('button', { class: 'btn', onclick: () => { obPage--; renderOnboarding(); } }, 'Zurück') : null,
-    el('button', { class: 'btn primary', id: 'obNext', disabled: obPage === 1 && !S.model, onclick: () => { if (last) closeOnboarding(true); else { obPage++; renderOnboarding(); } } }, last ? `Mit ${displayName(S.project.projectors[0])} beginnen` : 'Weiter'));
+    el('button', { class: 'btn primary', id: 'obNext', disabled: obPage === 1 && !S.model, onclick: () => { if (last) closeOnboarding(true); else { obPage++; renderOnboarding(); } } }, last ? `Mit ${displayName(S.project.projectors[0])} beginnen` : 'Weiter')].filter(Boolean));
   $('#obNext').focus();
 }
 

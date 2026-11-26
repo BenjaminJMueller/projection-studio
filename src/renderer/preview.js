@@ -85,6 +85,16 @@ export class Preview {
       for (let x = 0; x <= this.W; x += 120) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, this.H); g.stroke(); }
       for (let y = 0; y <= this.H; y += 120) { g.beginPath(); g.moveTo(0, y); g.lineTo(this.W, y); g.stroke(); }
     }
+    // Bildmodus mit Beschnitt: was der Projektor nicht zeigt, abdunkeln
+    const vis = this.extras.visible;
+    if (vis && (vis[0] < 1 || vis[1] < 1)) {
+      const x0 = (this.W * (1 - vis[0])) / 2, y0 = (this.H * (1 - vis[1])) / 2;
+      g.fillStyle = 'rgba(0,0,0,0.62)';
+      g.fillRect(0, 0, this.W, y0); g.fillRect(0, this.H - y0, this.W, y0);
+      g.fillRect(0, y0, x0, this.H - 2 * y0); g.fillRect(this.W - x0, y0, x0, this.H - 2 * y0);
+      g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = px; g.setLineDash([6 * px, 5 * px]);
+      g.strokeRect(x0, y0, this.W - 2 * x0, this.H - 2 * y0); g.setLineDash([]);
+    }
     // berechnete Blend-Maske (Tab „Blending“)
     if (this.mode === 'blend' && this.extras.blendImg?.complete) {
       g.drawImage(this.extras.blendImg, 0, 0, this.W, this.H);

@@ -150,20 +150,27 @@ const EN = {
   'Ordner der TouchDesigner-Datei wählen (dort entsteht „kalibrierung“)': 'Choose the folder of the TouchDesigner file (a “kalibrierung” folder is created there)',
   'Alle Punkte gelöscht. Mit Strg/Cmd+Z rückgängig.': 'All points deleted. Undo with Ctrl/Cmd+Z.', 'Letzte Sitzung wiederhergestellt': 'Last session restored',
   // ---- Einführung, Hilfe
-  'Willkommen': 'Welcome', 'Richte deine Projektoren am 3D-Modell aus, blende sie weich ineinander und gib das Ergebnis direkt aus.': 'Align your projectors to the 3D model, blend them softly and output the result directly.',
-  'Modell laden und festlegen, welcher Bildschirm welche Projektoren speist.': 'Load the model and decide which display feeds which projectors.',
-  'Pro Projektor ein paar Ecken im Modell anklicken und auf der echten Decke treffen.': 'For each projector, click a few corners in the model and hit them on the real ceiling.',
-  'Überlappungen, Bogenseiten und Helligkeit werden automatisch ausgeglichen.': 'Overlaps, arch sides and brightness are balanced automatically.',
-  'Testbilder auf den Projektoren zeigen oder an TouchDesigner übergeben.': 'Show test patterns on the projectors or hand over to TouchDesigner.',
+  'Willkommen': 'Welcome',
+  'Projection Studio richtet mehrere Projektoren an einem 3D-Modell des Raums aus, blendet sie zu einem Bild zusammen und spielt Inhalte darauf ab. Vier Schritte:':
+    'Projection Studio aligns several projectors to a 3D model of the room, blends them into one image and plays content on it. Four steps:',
+  '3D-Modell des Raums laden und festlegen, welcher HDMI-Ausgang welche Projektoren speist, direkt oder über einen Video-Wall-Controller.':
+    'Load the 3D model of the room and decide which HDMI output feeds which projectors, directly or through a video wall controller.',
+  'Pro Projektor einige Ecken im Modell anklicken und dieselbe Stelle im Raum treffen. Daraus ergeben sich Position, Ausrichtung und Objektiv.':
+    'For each projector, click a few corners in the model and hit the same spot in the room. This gives position, orientation and lens.',
+  'Weiche Übergänge in den Überlappungen und gleichmäßige Helligkeit, automatisch aus der Kalibrierung.':
+    'Soft transitions in the overlaps and even brightness, automatically from the calibration.',
+  'Videos über alle Projektoren abspielen oder Kalibrierung und Masken an TouchDesigner übergeben.':
+    'Play videos across all projectors or hand calibration and masks over to TouchDesigner.',
+  'Einführung schließen': 'Close introduction', 'Schließen (Esc)': 'Close (Esc)',
   'Womit möchtest du starten?': 'How would you like to start?',
   'Die Demo ist eine Gewölbedecke mit acht Projektoren, gut zum Ausprobieren. Alles lässt sich später unter „Einrichten“ ändern.': 'The demo is a vaulted ceiling with eight projectors, good for trying things out. Everything can be changed later under “Set up”.',
   'Mit der Demo': 'With the demo', 'Gewölbedecke, 8 Projektoren': 'Vaulted ceiling, 8 projectors', 'Eigenes 3D-Modell': 'Own 3D model', 'OBJ-Datei wählen …': 'Choose OBJ file …',
   'Projektor 1–4 hängen an HDMI A, Projektor 5–8 an HDMI B, jeweils ein Viertel des Bildes.': 'Projectors 1–4 are on HDMI A, projectors 5–8 on HDMI B, one quarter of the image each.',
   'So setzt du einen Punkt': 'How to place a point', 'Vier Punkte pro Projektor reichen für eine erste Lösung. Sechs gut verteilte sind ideal.': 'Four points per projector give a first solution. Six well-spread points are ideal.',
-  'Ecke anklicken': 'Click a corner', 'Eine markante Ecke im 3D-Modell anklicken.': 'Click a distinct corner in the 3D model.', 'Fadenkreuz schieben': 'Move the crosshair',
-  'Am Projektor dieselbe Ecke an der Decke treffen, mit Maus oder Pfeiltasten.': 'On the projector, hit the same corner on the ceiling with the mouse or arrow keys.',
+  'Ecke anklicken': 'Click a corner', 'Einen der weißen Punkte im 3D-Modell anklicken, am besten weit außen im Bild des Projektors.': 'Click one of the white dots in the 3D model, ideally far out in the projector’s image.', 'Fadenkreuz schieben': 'Move the crosshair',
+  'Die Maus springt auf den Projektor. Dort das Fadenkreuz auf dieselbe Ecke im Raum ziehen, fein mit den Pfeiltasten.': 'The mouse jumps to the projector. Drag the crosshair onto the same corner in the room there, fine-tune with the arrow keys.',
   'Prüfen': 'Check', 'Ab vier Punkten erscheinen die Kanten. Wo es nicht passt, nachsetzen.': 'From four points the edges appear. Where it does not fit, add more.',
-  'Überspringen': 'Skip', 'Zurück': 'Back', 'Weiter': 'Next', 'Klick': 'Click', 'Punkt im Modell setzen': 'Place point in the model', 'Fadenkreuz verschieben': 'Move crosshair',
+  'Zurück': 'Back', 'Weiter': 'Next', 'Klick': 'Click', 'Punkt im Modell setzen': 'Place point in the model', 'Fadenkreuz verschieben': 'Move crosshair',
   'mit Pfeil: 10 Pixel': 'with arrow: 10 pixels', 'Nächster Punkt': 'Next point', 'Entf': 'Del', 'Punkt löschen': 'Delete point', 'Projektor wählen': 'Select projector',
   'Esc': 'Esc', 'Auswahl aufheben': 'Deselect', 'Strg': 'Ctrl', 'Einführung anzeigen': 'Show introduction', '3D-Modell laden …': 'Load 3D model …', 'Tastenkürzel': 'Keyboard shortcuts',
   'Sprache': 'Language',

@@ -134,6 +134,8 @@ export function makeCoverageMaterial(maxProjectors = 8) {
     uViewProj: { value: Array.from({ length: maxProjectors }, () => new THREE.Matrix4()) },
     uColor: { value: Array.from({ length: maxProjectors }, () => new THREE.Color()) },
     uRes: { value: Array.from({ length: maxProjectors }, () => new THREE.Vector2(1920, 1080)) },
+    // sichtbarer Anteil des Signals je Projektor (Bildmodus mit Beschnitt), 1 = alles
+    uVis: { value: Array.from({ length: maxProjectors }, () => new THREE.Vector2(1, 1)) },
     uOpacity: { value: 0.35 },
     uLightDir: { value: new THREE.Vector3(0.3, -1, 0.2).normalize() },
   };
@@ -150,7 +152,7 @@ export function makeCoverageMaterial(maxProjectors = 8) {
     fragmentShader: /* glsl */ `
       #define MAXP ${maxProjectors}
       uniform int uCount; uniform int uActive;
-      uniform mat4 uViewProj[MAXP]; uniform vec3 uColor[MAXP]; uniform vec2 uRes[MAXP];
+      uniform mat4 uViewProj[MAXP]; uniform vec3 uColor[MAXP]; uniform vec2 uRes[MAXP]; uniform vec2 uVis[MAXP];
       uniform float uOpacity; uniform vec3 uLightDir;
       varying vec3 vWorld; varying vec3 vNormal;
       void main(){
@@ -163,7 +165,7 @@ export function makeCoverageMaterial(maxProjectors = 8) {
           vec4 c = uViewProj[i] * vec4(vWorld, 1.0);
           if (c.w <= 0.0) continue;
           vec2 ndc = c.xy / c.w;
-          if (abs(ndc.x) > 1.0 || abs(ndc.y) > 1.0) continue;
+          if (abs(ndc.x) > uVis[i].x || abs(ndc.y) > uVis[i].y) continue;
           float a = (i == uActive) ? 1.0 : 0.6;
           cover += uColor[i] * a; k += 1.0;
           if (i == uActive) {
@@ -171,7 +173,7 @@ export function makeCoverageMaterial(maxProjectors = 8) {
             vec2 g = abs(fract(px / 120.0 - 0.5) - 0.5) * 120.0;
             vec2 fw = fwidth(px) * 1.2;
             float line = 1.0 - min(min(g.x / fw.x, g.y / fw.y), 1.0);
-            float border = step(0.985, max(abs(ndc.x), abs(ndc.y)));
+            float border = step(0.985, max(abs(ndc.x) / uVis[i].x, abs(ndc.y) / uVis[i].y));
             cover += uColor[i] * (line * 1.5 + border * 2.0);
           }
         }
@@ -184,9 +186,11 @@ export function makeCoverageMaterial(maxProjectors = 8) {
 }
 
 /** Linien eines Projektor-Frustums (Pyramide bis zur Tiefe depth) in Weltkoordinaten. */
-export function frustumLines(sol, depth) {
+export function frustumLines(sol, depth, visible = [1, 1]) {
   const { width: W, height: H } = sol;
-  const corners = [[0, 0], [W, 0], [W, H], [0, H]];
+  // sichtbarer, zentrierter Ausschnitt des Signals (Bildmodus mit Beschnitt)
+  const x0 = (W * (1 - visible[0])) / 2, y0 = (H * (1 - visible[1])) / 2;
+  const corners = [[x0, y0], [W - x0, y0], [W - x0, H - y0], [x0, H - y0]];
   const m = sol.mirror ? -1 : 1;
   const Rt = [
     [sol.R[0][0], sol.R[1][0], sol.R[2][0]],
