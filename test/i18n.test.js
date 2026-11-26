@@ -49,3 +49,12 @@ test('Bildmodus-Hinweis mit Zahlen', () => {
   assert.equal(tr('± 25 cm'), '± 25 cm');
   setLang('de');
 });
+
+test('Neue Texte: Kamera ohne Bezugsprojektor', () => {
+  setLang('en');
+  assert.equal(tr('Projektor 2 (kalibriert)'), 'Projector 2 (calibrated)');
+  assert.equal(tr('4 grobe Punkte abgewählt'), '4 rough points deselected');
+  assert.equal(tr('Kamera und Projektor passen nicht gut zusammen (1,8 px). Stand die Kamera fest? Sonst die groben Punkte prüfen.'), 'Camera and projector do not fit together well (1,8 px). Was the camera fixed? Otherwise check the rough points.');
+  assert.equal(tr('Grobe Punkte dieses Projektors'), 'Rough points of this projector');
+  setLang('de');
+});

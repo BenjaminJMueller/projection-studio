@@ -1644,7 +1644,7 @@ function audioGroup() {
 
 // Raumeinmessung (Assistent in tuning.js)
 const tuning = createTuning({ el, ic, icon, tr, nf, api, audio, A, markDirty, refresh, toast, peakingResponse });
-const camcal = createCamcal({ el, ic, tr, nf, api, S, active, displayName, lensFor, markDirty, refresh, toast, scheduleSolve, toggleOutputs: (v) => toggleOutputs(v), setPlay: (v) => setPlay(v) });
+const camcal = createCamcal({ el, ic, tr, nf, api, S, active, displayName, lensFor, markDirty, refresh, toast, scheduleSolve, infoBtn, toggleOutputs: (v) => toggleOutputs(v), setPlay: (v) => setPlay(v) });
 function cameraGroup(p) {
   const n = p.autoPoints?.length || 0;
   return [

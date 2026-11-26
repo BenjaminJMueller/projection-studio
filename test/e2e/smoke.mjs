@@ -310,6 +310,65 @@ const camRes = await win.evaluate(async () => {
 console.log('Kamera-Kalibrierung:', JSON.stringify(camRes), `${((Date.now() - tCam) / 1000).toFixed(1)} s`);
 if (!(camRes.points > 30 && camRes.rms < 3 && camRes.mirror === camRes.truthMirror)) errors.push('error: Kamera-Kalibrierung ' + JSON.stringify(camRes));
 await win.screenshot({ path: path.join(outDir, '14-kamera-3.png') });
+// Erster Projektor ohne Bezug: P3 nur mit 4 groben Punkten (±25 px), dann Kamera an 2 Standorten
+await win.evaluate(async (simUrl) => {
+  const { makeSimSource } = await import(simUrl);
+  const { S, camcal, refresh, scheduleSolve } = window.__app;
+  const p = S.project.projectors[2];
+  window.__truth3 = JSON.parse(JSON.stringify(p.solution));
+  let r = 3;
+  const rnd = () => ((r = (r * 16807) % 2147483647) / 2147483647 - 0.5);
+  p.points = p.points.filter((_, i) => [0, 2, 5, 6].includes(i)).map((x) => ({ ...x, image: [x.image[0] + 50 * rnd(), x.image[1] + 50 * rnd()] }));
+  p.solution = null;
+  scheduleSolve(p);
+  const src = makeSimSource(S.model, { [p.id]: { solution: window.__truth3, resolution: p.resolution } });
+  window.__sim = src;
+  src.aimAtImage(p.id, 0.3, 0.55);
+  camcal.useSource(src);
+  S.activeId = p.id;
+  refresh();
+}, new URL('./simCamera.js', import.meta.url).href);
+await win.waitForFunction(() => window.__app.S.project.projectors[2].solution, null, { timeout: 30000 });
+const errOf = async (key) => win.evaluate(async (key) => {
+  const { projectPoint } = await import('../core/solver.js');
+  const p = window.__app.S.project.projectors[2], pos = window.__app.S.model.geometry.attributes.position.array;
+  const sol = key === 'result' ? window.__app.camcal.state.result.solution : p.solution;
+  let se = 0, n = 0;
+  for (let i = 0; i < pos.length; i += 3 * 29) {
+    const X = [pos[i], pos[i + 1], pos[i + 2]];
+    const a = projectPoint(window.__truth3, X);
+    if (a.z <= 0 || a.u < 0 || a.v < 0 || a.u >= p.resolution[0] || a.v >= p.resolution[1]) continue;
+    const b = projectPoint(sol, X);
+    se += (a.u - b.u) ** 2 + (a.v - b.v) ** 2; n++;
+  }
+  return Math.sqrt(se / n);
+}, key);
+const rough3 = await errOf('solution');
+await win.evaluate(() => window.__app.camcal.open('P3'));
+await win.waitForSelector('#camSheet:not(.hidden) #camRef');
+await win.selectOption('#camRef', '__self');
+await win.waitForSelector('#btnCamMeasure:not([disabled])', { timeout: 20000 });
+await win.waitForTimeout(300);
+await win.screenshot({ path: path.join(outDir, '14-kamera-erster-1.png') });
+await win.click('#btnCamMeasure');
+await win.waitForSelector('#btnCamApply:not([disabled])', { timeout: 180000 });
+const self1 = await errOf('result');
+await win.screenshot({ path: path.join(outDir, '14-kamera-erster-2.png') });
+await win.evaluate(() => window.__sim.aimAtImage('P3', 0.72, 0.55));
+await win.click('#btnCamAnother');
+await win.waitForSelector('#btnCamMeasure:not([disabled])');
+await win.click('#btnCamMeasure');
+await win.waitForSelector('#btnCamApply:not([disabled])', { timeout: 180000 });
+await win.waitForTimeout(300);
+await win.screenshot({ path: path.join(outDir, '14-kamera-erster-3.png') });
+const self2 = await errOf('result');
+await win.click('#btnCamApply');
+await win.waitForFunction(() => window.__app.S.project.projectors[2].autoPoints.length, null, { timeout: 30000 });
+await win.waitForTimeout(1500);
+const self3 = await errOf('solution');
+const selfInfo = await win.evaluate(() => ({ off: window.__app.S.project.projectors[2].points.filter((x) => !x.enabled).length, joint: window.__app.camcal.state.result?.joint }));
+console.log(`Erster Projektor: grob ${rough3.toFixed(1)} px → 1 Standort ${self1.toFixed(2)} px → 2 Standorte ${self2.toFixed(2)} px → übernommen ${self3.toFixed(2)} px`, JSON.stringify(selfInfo));
+if (!(self2 < 3 && self3 < 3 && self2 < rough3 / 3)) errors.push(`error: Kamera ohne Bezug grob ${rough3} → ${self1} → ${self2} → ${self3}`);
 await win.evaluate(() => { const a = window.__app; a.S.activeId = 'P1'; a.S.project.view.outputMode = 'grid'; a.refresh(); });
 
 // Videowiedergabe: Testvideo auf dem Modell, Zeit muss laufen

@@ -520,6 +520,20 @@ const EN = {
   '±{0} Einheiten. Mehr Punkte in unterschiedlicher Höhe und Tiefe helfen.': '±{0} units. More points at different heights and depths help.',
   '{0} liegt außerhalb des Objektivbereichs. Punkte oder Projektor-Typ prüfen.': '{0} is outside the lens range. Check the points or the projector type.',
   'Groß anzeigen': 'Show large',
+  "Erst 4 grobe Punkte von Hand setzen.": "Set 4 rough points by hand first.",
+  "Erst grobe Punkte von Hand setzen.": "Set rough points by hand first.",
+  "Projektor und Kamera werden gemeinsam berechnet …": "Solving projector and camera together …",
+  "Keine Lösung gefunden.": "No solution found.",
+  "{0} grobe Punkte abgewählt": "{0} rough points deselected",
+  "Grobe Punkte dieses Projektors": "Rough points of this projector",
+  "grobe Punkte dieses Projektors": "rough points of this projector",
+  "Grobe Punkte: 4 oder mehr von Hand gesetzte Punkte dieses Projektors reichen als Startwert, auch wenn sie ungenau sind. Projektor und Kamera werden dann gemeinsam gelöst, jeder weitere Kamera-Standort macht das Ergebnis genauer. Kalibrierter Projektor: Die Kamera bestimmt ihren Standort über einen Nachbarn, den sie mit sieht.": "Rough points: 4 or more points of this projector set by hand are enough as a starting value, even if they are inaccurate. Projector and camera are then solved together, and every additional camera position makes the result more accurate. Calibrated projector: the camera finds its position through a neighbor it can also see.",
+  "Erst 4 grobe Punkte von Hand setzen. Sie müssen nicht genau sein, die Kamera übernimmt die Feinarbeit.": "Set 4 rough points by hand first. They do not need to be accurate, the camera does the fine work.",
+  "Kamera an einen neuen Standort stellen, so dass sie den fehlenden Teil des Projektorbilds sieht. Etwas Überschneidung mit dem vorigen Standort ist gut.": "Move the camera to a new position so that it sees the missing part of the projector image. Some overlap with the previous position is good.",
+  "Kamera fest aufstellen (Stativ), so dass sie möglichst viel von diesem Projektor sieht. Er zeigt jetzt ein Schachbrett. Sieht die Kamera nicht alles, kommen danach weitere Standorte dazu.": "Set up the camera firmly (tripod) so that it sees as much of this projector as possible. It now shows a checkerboard. If the camera does not see everything, add more positions afterwards.",
+  "Kamera und Projektor passen nicht gut zusammen ({0} px). Stand die Kamera fest? Sonst die groben Punkte prüfen.": "Camera and projector do not fit together well ({0} px). Was the camera fixed? Otherwise check the rough points.",
+  "Ohne kalibrierten Nachbarn wird das Ergebnis mit jedem weiteren Kamera-Standort deutlich genauer, besonders an den Bildrändern.": "Without a calibrated neighbor, every additional camera position makes the result much more accurate, especially at the image edges.",
+  "Die Kamera sieht zu wenig vom Projektorbild auf dem Modell. Grobe Punkte prüfen.": "The camera sees too little of the projector image on the model. Check the rough points.",
 };
 
 // Muster mit Namen statt Zahlen
@@ -579,6 +593,7 @@ const PATTERNS = [
   [/^Gruppe (\d+)$/, (m) => `Group ${m[1]}`],
   [/^(.+) tauscht den Platz$/, (m) => `${tr(m[1])} swaps places`],
   [/^(.+): frei$/, (m) => `${tr(m[1])}: free`],
+  [/^(.+) \(kalibriert\)$/, (m) => `${tr(m[1])} (calibrated)`],
   [/^(.+) → (.+)$/, (m) => `${tr(m[1])} → ${tr(m[2])}`],
 ];
 

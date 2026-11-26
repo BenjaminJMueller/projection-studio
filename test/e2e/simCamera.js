@@ -36,6 +36,16 @@ export function makeSimSource(model, truths, { w = 480, h = 270, hfov = 67, belo
     const a = surf(truths[idA], 120), b = surf(truths[idB], 120);
     let best = Infinity, aim = a[0];
     for (const p of a) for (const q of b) { const d = norm3(sub3(p, q)); if (d < best) { best = d; aim = scale3(add3(p, q), 0.5); } }
+    setCamera(aim);
+  }
+  /** Kamera auf die Stelle richten, die Projektor id am Bildpunkt (fu, fv) (Anteile 0..1) trifft. */
+  function aimAtImage(id, fu, fv) {
+    const t = truths[id], [W, H] = t.resolution, C = cameraCenter(t.solution.R, t.solution.t);
+    const hit = intersect(C, pixelRay(t.solution, fu * W, fv * H));
+    if (!hit) throw new Error('aimAtImage: Bildpunkt trifft das Modell nicht');
+    setCamera(hit.point);
+  }
+  function setCamera(aim) {
     cam = lookAt(sub3(aim, [0.3, below, 0.2]), aim, [0, 0, 1], f, w / 2 + 2, h / 2 - 1);
     const Cc = cameraCenter(cam.R, cam.t);
     pts = new Array(n);
@@ -66,7 +76,7 @@ export function makeSimSource(model, truths, { w = 480, h = 270, hfov = 67, belo
   let seed = 7;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5);
   const src = {
-    width: w, height: h, video: null, pattern: null, aimAt,
+    width: w, height: h, video: null, pattern: null, aimAt, aimAtImage,
     controls: () => ({}),
     auto: async () => {}, lock: async () => null, darker: async () => false, autofocus: async () => false,
     render() {

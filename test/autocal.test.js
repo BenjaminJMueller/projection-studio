@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { buildRaycaster, cameraFromReference, projectorPoints, robustSolve, cameraLens, coverageReport } from '../src/core/autocal.js';
+import { buildRaycaster, cameraFromReference, projectorPoints, robustSolve, cameraLens, coverageReport, jointSolve, selfCalibrate } from '../src/core/autocal.js';
 import { patternPlan, patternValue, GrayDecoder, filterCells, thinCells } from '../src/shared/graycode.js';
-import { projectPoint, cameraCenter, pixelRay } from '../src/core/solver.js';
+import { projectPoint, cameraCenter, pixelRay, solveProjector } from '../src/core/solver.js';
 import { getLensPreset } from '../src/core/lenses.js';
 import { sub3, norm3, normalize3, cross3, scale3, matVec3 } from '../src/core/linalg.js';
 
@@ -124,4 +124,57 @@ test('Kamera-Kalibrierung: Bezugsprojektor → Kamera → zweiter Projektor (Tei
   const rms = Math.sqrt(se / n);
   console.log(`Kamera ${dC.toFixed(3)} m, ${pts.length} Punkte, Abdeckung ${(rep.filled * 100).toFixed(0)} %, Fehler im Bild rms ${rms.toFixed(2)} px, max ${worst.toFixed(1)} px`);
   assert.ok(rms < 4 && worst < 12, `rms ${rms}, max ${worst}`);
+});
+
+// Fehler einer Lösung über das ganze Projektorbild (an Modellecken, die der echte Projektor trifft)
+function imageError(truth, sol) {
+  let se = 0, n = 0, worst = 0;
+  for (const X of mesh.verts.filter((_, i) => i % 13 === 0)) {
+    const a = projectPoint(truth, X);
+    if (a.z <= 0 || a.u < 0 || a.u >= PW || a.v < 0 || a.v >= PH) continue;
+    const b = projectPoint(sol, X);
+    const e = Math.hypot(a.u - b.u, a.v - b.v);
+    se += e * e; n++; worst = Math.max(worst, e);
+  }
+  return { rms: Math.sqrt(se / n), worst };
+}
+
+for (const mirror of [false, true]) test(`Erster Projektor${mirror ? ' (über Spiegel)' : ''}: 4 grobe Punkte + Kamera an 3 Standorten, ohne Bezugsprojektor`, { timeout: 180000 }, () => {
+  const truth = proj([0.5, -2.2, -3.2], [0.8, 1.8, -2.2], mirror);
+  const fCam = CW / (2 * Math.tan((67 * Math.PI) / 360));
+  // Kamera zu schmal für das ganze Bild: drei Standorte, jeder sieht einen Teil
+  const cams = [[[0.7, -0.3, -3.2], [0.7, 2.0, -4.2]], [[0.5, -0.3, -3.0], [-1.6, 1.8, -3.4]], [[0.8, -0.3, -3.2], [2.6, 1.6, -5.0]]]
+    .map(([C, T]) => lookAt(C, T, [0, 1, 0.1], fCam, CW / 2 + 3, CH / 2 - 2));
+  const sessions = cams.map((c, k) => {
+    const d = decode(lightMap(c, truth), 3, 11 + 50 * k);
+    return { cells: thinCells(filterCells(d.cells(d.assess().drop)), PW, PH, 300), camW: CW, camH: CH };
+  });
+  // 4 grobe Punkte an Modellecken, bis zu ±30 px daneben geklickt
+  let r = 7;
+  const rnd = () => ((r = (r * 16807) % 2147483647) / 2147483647 - 0.5);
+  const vis = mesh.verts.filter((X) => { const q = projectPoint(truth, X); return q.z > 0 && q.u > 0 && q.u < PW && q.v > 0 && q.v < PH; });
+  const near = (u, v) => vis.reduce((b, X) => { const q = projectPoint(truth, X); const d = Math.hypot(q.u - u, q.v - v); return d < b.d ? { d, X } : b; }, { d: Infinity }).X;
+  const manual = [[200, 150], [1700, 150], [1700, 950], [200, 950]].map(([u, v]) => {
+    const X = near(u, v), q = projectPoint(truth, X);
+    return { world: X, image: [q.u + 60 * rnd(), q.v + 60 * rnd()] };
+  });
+  const rough = solveProjector({ points: manual, width: PW, height: PH, lens, pixelSigma: 30 });
+  assert.ok(rough.ok);
+  const e0 = imageError(truth, rough.solution);
+  assert.ok(e0.rms > 10, `grob ${e0.rms}`);
+
+  // nur ein Standort: schon deutlich besser als von Hand
+  const one = jointSolve({ start: rough.solution, sessions: sessions.slice(0, 1), width: PW, height: PH, lens, camLens: cameraLens(67), manual }, intersect);
+  assert.ok(one.ok, one.message);
+  const e1 = imageError(truth, one.projector);
+
+  const all = selfCalibrate({ start: rough.solution, sessions, width: PW, height: PH, lens, camLens: cameraLens(67), manual }, intersect);
+  assert.ok(all.ok, all.message);
+  const e3 = imageError(truth, all.solution);
+  const dC = norm3(sub3(all.solution.center, cameraCenter(truth.R, truth.t)));
+  console.log(`grob ${e0.rms.toFixed(1)} px → 1 Standort ${e1.rms.toFixed(2)} px → 3 Standorte ${e3.rms.toFixed(2)} px (max ${e3.worst.toFixed(1)}), Position ${(dC * 100).toFixed(1)} cm, Kamera ${all.joint.camRms.toFixed(2)} px, ${all.joint.ms} ms`);
+  assert.ok(e1.rms < e0.rms / 2, `1 Standort ${e1.rms}`);
+  assert.ok(e3.rms < 1.5 && e3.worst < 5, `3 Standorte ${e3.rms} / ${e3.worst}`);
+  assert.ok(all.joint.camRms < 1);
+  assert.equal(all.solution.mirror, mirror);
 });

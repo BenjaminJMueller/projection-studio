@@ -1,8 +1,12 @@
 // Assistent „Mit Kamera kalibrieren“: pro Projektor, Kamera-Standort über einen schon kalibrierten
-// Nachbarprojektor, Testmuster (Gray-Code), Schärfe- und Bewegungsprüfung, mehrere Kamera-Standorte.
+// Nachbarprojektor oder (erster Projektor) über grobe Punkte von Hand, dann werden Projektor und
+// Kamera gemeinsam gelöst. Testmuster (Gray-Code), Schärfe- und Bewegungsprüfung, mehrere Standorte.
 // Rechnung: shared/graycode.js (Muster, Dekodierung, Schärfe) und core/autocal.js (3D, Solver).
 import { patternPlan, GrayDecoder, filterCells, thinCells, focusMeasure, SHARP_LIMIT } from '../shared/graycode.js';
 import { Camera, listCameras } from './camera.js';
+import { projectPoint } from '../core/solver.js';
+
+const SELF = '__self'; // Standort über die groben Punkte des Projektors selbst
 
 const SHIFT = 3; // feinste Streifen 8 Projektorpixel; zu feine werden je nach Kameraabstand weggelassen
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -23,6 +27,8 @@ export function createCamcal(h) {
   const root = () => document.getElementById('camSheet');
   const target = () => S.project.projectors.find((p) => p.id === W.targetId);
   const refs = () => S.project.projectors.filter((p) => p.id !== W.targetId && p.solution && p.enabled !== false);
+  const selfMode = () => W.refId === SELF;
+  const canSelf = () => !!target()?.solution;
 
   // ------------------------------------------------------------ Muster auf den Projektoren
   let pseq = 0;
@@ -114,7 +120,8 @@ export function createCamcal(h) {
     W.targetId = projectorId || active().id;
     const r = refs();
     Object.assign(W, { step: 'setup', sessions: [], pose: null, result: null, blur: null, message: '', busy: false, progress: null, level: 255 });
-    W.refId = r.some((p) => p.id === W.refId) ? W.refId : nearestRef(r)?.id || '';
+    W.refId = r.some((p) => p.id === W.refId) ? W.refId : nearestRef(r)?.id || SELF;
+    W.start = null;
     root().classList.remove('hidden');
     h.setPlay?.('pause');
     if (!W.simulated) {
@@ -131,7 +138,7 @@ export function createCamcal(h) {
   }
   async function showAim() {
     // Ziel und Bezug zeigen das Fokusbild: so lässt sich die Kamera ausrichten und scharfstellen
-    const ids = [W.targetId, W.pose ? null : W.refId].filter(Boolean);
+    const ids = [W.targetId, W.pose || selfMode() ? null : W.refId].filter(Boolean);
     await show(ids, { kind: 'focus' });
     W.best = 0;
     liveLoop();
@@ -253,8 +260,10 @@ export function createCamcal(h) {
 
   async function measure() {
     const p = target();
-    const ref = W.pose ? null : S.project.projectors.find((x) => x.id === W.refId);
-    if (!W.pose && !ref) { W.message = tr('Kein kalibrierter Bezugsprojektor gewählt.'); return render(); }
+    const self = selfMode();
+    const ref = W.pose || self ? null : S.project.projectors.find((x) => x.id === W.refId);
+    if (self && !canSelf()) { W.message = tr('Erst 4 grobe Punkte von Hand setzen.'); return render(); }
+    if (!self && !W.pose && !ref) { W.message = tr('Kein kalibrierter Bezugsprojektor gewählt.'); return render(); }
     stopLive();
     Object.assign(W, { busy: true, message: '', abort: false, step: 'measure' });
     render();
@@ -263,7 +272,7 @@ export function createCamcal(h) {
       await prepare([p.id, ...(ref ? [ref.id] : [])]);
       const src = W.source;
       let pose = W.pose;
-      if (!pose) {
+      if (!pose && !self) {
         const r = await captureChecked(ref, displayName(ref));
         const cells = thinCells(filterCells(r.dec.cells(r.assess.drop)), ref.resolution[0], ref.resolution[1], 250);
         W.progress = { text: tr('Kamera-Standort wird berechnet …'), value: 1 }; updateProgress();
@@ -274,15 +283,32 @@ export function createCamcal(h) {
       const t = await captureChecked(p, displayName(p));
       const cells = thinCells(filterCells(t.dec.cells(t.assess.drop)), p.resolution[0], p.resolution[1], 300);
       if (cells.length < 12) throw new Error(tr(`Die Kamera sieht zu wenig von ${displayName(p)}. Kamera mehr auf diesen Projektor richten.`));
-      W.progress = { text: tr('Punkte werden berechnet …'), value: 1 }; updateProgress();
-      const points = await run({ kind: 'points', cells, cam: pose.solution });
       const map = t.dec.sharpnessMap(t.assess.probe);
-      W.sessions.push({ points, sharp: t.assess.sharp, map, white: { data: t.white, w: src.width, h: src.height }, scale: t.assess.scale, poseRms: pose.rms });
-      W.pose = pose;
-      await solve();
-      W.step = 'result';
+      const session = { sharp: t.assess.sharp, map, white: { data: t.white, w: src.width, h: src.height }, scale: t.assess.scale };
+      if (self) {
+        // Erster Projektor: kein Bezug, Projektor und Kamera werden gemeinsam gelöst.
+        // Die Zellen bleiben roh, jeder weitere Standort rechnet alle zusammen neu.
+        W.start ||= p.solution; // Startwert bleibt für alle Standorte derselbe
+        W.sessions.push({ ...session, cells, camW: src.width, camH: src.height, group: `${W.cameraId}|${src.width}x${src.height}` });
+        W.progress = { text: tr('Projektor und Kamera werden gemeinsam berechnet …'), value: 1 }; updateProgress();
+        const before = W.result;
+        await solve();
+        if (!W.result?.ok) {
+          const msg = W.result?.message;
+          W.sessions.pop(); W.result = before;
+          throw new Error(msg || tr('Keine Lösung gefunden.'));
+        }
+        W.step = 'result';
+      } else {
+        W.progress = { text: tr('Punkte werden berechnet …'), value: 1 }; updateProgress();
+        const points = await run({ kind: 'points', cells, cam: pose.solution });
+        W.sessions.push({ ...session, points, poseRms: pose.rms });
+        W.pose = pose;
+        await solve();
+        W.step = 'result';
+      }
     } catch (e) {
-      W.step = W.sessions.length && e.message === 'abort' ? 'result' : 'setup';
+      W.step = W.sessions.length && W.result?.ok && e.message === 'abort' ? 'result' : 'setup';
       if (e.message !== 'abort') W.message = e.message;
     }
     W.busy = false; W.progress = null;
@@ -291,6 +317,13 @@ export function createCamcal(h) {
 
   async function solve() {
     const p = target();
+    if (selfMode()) {
+      W.result = await run({ kind: 'self', opts: {
+        start: W.start, sessions: W.sessions.map(({ cells, camW, camH, group }) => ({ cells, camW, camH, group })),
+        manual: p.points, width: p.resolution[0], height: p.resolution[1], lens: lensFor(p, S.project), mountMode: p.mountMode,
+      } });
+      return;
+    }
     const points = W.sessions.flatMap((s) => s.points);
     W.result = await run({ kind: 'solve', opts: { points, width: p.resolution[0], height: p.resolution[1], lens: lensFor(p, S.project), mountMode: p.mountMode, previous: p.solution, pixelSigma: 1 } });
   }
@@ -299,7 +332,7 @@ export function createCamcal(h) {
   function another() {
     W.pose = null;
     W.step = 'setup';
-    W.refId = nearestRef(refs())?.id || '';
+    if (!selfMode()) W.refId = nearestRef(refs())?.id || '';
     render();
     showAim();
   }
@@ -309,12 +342,22 @@ export function createCamcal(h) {
     if (!res?.ok) return;
     const pts = thinCells(res.points.map((x) => ({ u: x.image[0], v: x.image[1], x: 0, y: 0, pt: x })), p.resolution[0], p.resolution[1], 400).map((c) => c.pt);
     p.autoPoints = pts.map((x) => ({ world: x.world.map((v) => +v.toFixed(5)), image: [+x.image[0].toFixed(2), +x.image[1].toFixed(2)] }));
-    p.autoCal = { date: new Date().toISOString(), positions: W.sessions.length, sharp: +Math.min(...W.sessions.map((s) => s.sharp)).toFixed(2) };
+    p.autoCal = { date: new Date().toISOString(), positions: W.sessions.length, sharp: +Math.min(...W.sessions.map((s) => s.sharp)).toFixed(2), ...(selfMode() ? { self: true } : {}) };
+    // Erster Projektor: die groben Startpunkte würden die Kamera-Lösung nur verziehen, sie werden abgewählt
+    let off = 0;
+    if (selfMode()) {
+      const lim = Math.max(4, 3 * res.solution.rms);
+      for (const x of p.points) {
+        if (!x.enabled || !x.world || !x.image) continue;
+        const q = projectPoint(res.solution, x.world);
+        if (!(q.z > 0) || Math.hypot(q.u - x.image[0], q.v - x.image[1]) > lim) { x.enabled = false; off++; }
+      }
+    }
     scheduleSolve(p);
     markDirty();
     close();
     refresh();
-    toast(tr(`${displayName(p)}: ${pts.length} Kamera-Punkte übernommen`));
+    toast(tr(`${displayName(p)}: ${pts.length} Kamera-Punkte übernommen`) + (off ? ` · ${tr(`${off} grobe Punkte abgewählt`)}` : ''));
   }
 
   // ------------------------------------------------------------ Oberfläche
@@ -335,22 +378,30 @@ export function createCamcal(h) {
     const camRow = W.simulated ? null : el('div', { class: 'r' }, el('div', { class: 'lbl' }, el('span', {}, 'Kamera')),
       el('div', { class: 'ctl' }, el('select', { onchange: (e) => { W.cameraId = e.target.value; openCamera(e.target.value).then(showAim); } },
         ...(W.cameras.length ? W.cameras : [{ deviceId: '', label: 'Standardkamera' }]).map((c) => el('option', { value: c.deviceId, selected: c.deviceId === W.cameraId }, c.label || 'Kamera')))));
+    const self = selfMode(), locked = W.sessions.length > 0; // Art des Bezugs bleibt für alle Standorte gleich
     const refRow = W.pose
       ? el('div', { class: 'r' }, el('div', { class: 'lbl' }, el('span', {}, 'Kamera-Standort')), el('div', { class: 'ctl' }, el('span', { class: 'muted' }, 'bekannt, Kamera nicht bewegen')))
-      : el('div', { class: 'r' }, el('div', { class: 'lbl' }, el('span', {}, 'Standort über', el('span', { class: 'sub' }, 'ein kalibrierter Projektor, den die Kamera mit sieht'))),
-        el('div', { class: 'ctl' }, r.length
-          ? el('select', { onchange: (e) => { W.refId = e.target.value; showAim(); } }, ...r.map((x) => el('option', { value: x.id, selected: x.id === W.refId }, displayName(x))))
-          : el('span', { class: 'muted' }, 'keiner kalibriert')));
+      : el('div', { class: 'r' }, el('div', { class: 'lbl' }, el('span', {}, 'Standort über'),
+        h.infoBtn('Grobe Punkte: 4 oder mehr von Hand gesetzte Punkte dieses Projektors reichen als Startwert, auch wenn sie ungenau sind. Projektor und Kamera werden dann gemeinsam gelöst, jeder weitere Kamera-Standort macht das Ergebnis genauer. Kalibrierter Projektor: Die Kamera bestimmt ihren Standort über einen Nachbarn, den sie mit sieht.')),
+        el('div', { class: 'ctl' }, locked && self
+          ? el('span', { class: 'muted' }, 'grobe Punkte dieses Projektors')
+          : el('select', { id: 'camRef', onchange: (e) => { W.refId = e.target.value; render(); showAim(); } },
+            locked ? null : el('option', { value: SELF, selected: self }, 'Grobe Punkte dieses Projektors'),
+            ...r.map((x) => el('option', { value: x.id, selected: x.id === W.refId }, tr(`${displayName(x)} (kalibriert)`))))));
     const ctl = W.controls;
     const notes = [];
-    if (!r.length && !W.pose) notes.push('Erst einen Projektor von Hand kalibrieren. Die Kamera bestimmt ihren Standort über einen kalibrierten Projektor, den sie mit sieht.');
+    if (self && !canSelf()) notes.push('Erst 4 grobe Punkte von Hand setzen. Sie müssen nicht genau sein, die Kamera übernimmt die Feinarbeit.');
     if (!outputsOk) notes.push('Die Ausgänge sind geschlossen. Zum Messen müssen die Projektoren Bild bekommen.');
     if (W.source && !W.simulated && !ctl.exposure) notes.push('Die Belichtung dieser Kamera lässt sich nicht feststellen. Raum abdunkeln, dann ist das Ergebnis trotzdem gut.');
     return [
       el('h1', {}, tr(`${displayName(p)} mit Kamera kalibrieren`)),
-      el('p', { class: 'lead' }, W.sessions.length
-        ? 'Kamera an einen neuen Standort stellen, so dass sie den fehlenden Teil des Projektorbilds und einen kalibrierten Projektor sieht.'
-        : 'Kamera fest aufstellen (Stativ), so dass sie möglichst viel von diesem Projektor und einen Teil eines kalibrierten Nachbarn sieht. Beide zeigen jetzt ein Schachbrett.'),
+      el('p', { class: 'lead' }, self
+        ? W.sessions.length
+          ? 'Kamera an einen neuen Standort stellen, so dass sie den fehlenden Teil des Projektorbilds sieht. Etwas Überschneidung mit dem vorigen Standort ist gut.'
+          : 'Kamera fest aufstellen (Stativ), so dass sie möglichst viel von diesem Projektor sieht. Er zeigt jetzt ein Schachbrett. Sieht die Kamera nicht alles, kommen danach weitere Standorte dazu.'
+        : W.sessions.length
+          ? 'Kamera an einen neuen Standort stellen, so dass sie den fehlenden Teil des Projektorbilds und einen kalibrierten Projektor sieht.'
+          : 'Kamera fest aufstellen (Stativ), so dass sie möglichst viel von diesem Projektor und einen Teil eines kalibrierten Nachbarn sieht. Beide zeigen jetzt ein Schachbrett.'),
       preview(),
       el('div', { class: 'group' }, camRow, refRow, focusBar(),
         ctl.autofocus ? el('div', { class: 'r' }, el('div', { class: 'lbl' }), el('div', { class: 'ctl' }, el('button', { class: 'btn', onclick: async () => { await W.source.autofocus(); W.best = 0; } }, 'Kamera scharfstellen'))) : null),
@@ -397,6 +448,8 @@ export function createCamcal(h) {
     const tips = [...(rep?.tips || [])];
     const blurTiles = last.map.values.filter((v) => v !== null && v < SHARP_LIMIT).length / Math.max(1, last.map.values.filter((v) => v !== null).length);
     if (blurTiles > 0.25) tips.push('Teile des Bilds sind unscharf (siehe Karte). Auf gewölbten Flächen den Projektorfokus auf die Mitte der Fläche stellen. Unscharfe Stellen werden gröber gemessen.');
+    if (selfMode() && res?.ok && res.joint?.camRms > 1.5) tips.push(tr(`Kamera und Projektor passen nicht gut zusammen (${nf(res.joint.camRms, 1)} px). Stand die Kamera fest? Sonst die groben Punkte prüfen.`));
+    if (selfMode() && res?.ok && W.sessions.length === 1) tips.push('Ohne kalibrierten Nachbarn wird das Ergebnis mit jedem weiteren Kamera-Standort deutlich genauer, besonders an den Bildrändern.');
     if (W.pose?.rms > 3) tips.push(tr(`Kamera-Standort ungenau (${nf(W.pose.rms, 1)} px). Ist der Bezugsprojektor gut kalibriert und die Kamera fest?`));
     const ok = res?.ok;
     return [
@@ -439,7 +492,7 @@ export function createCamcal(h) {
     const r = root();
     if (!r || r.classList.contains('hidden')) return;
     const body = W.step === 'setup' ? setupStep() : W.step === 'measure' ? measureStep() : resultStep();
-    const canMeasure = !!W.source && (W.pose || refs().some((x) => x.id === W.refId)) && S.openOutputs?.size > 0;
+    const canMeasure = !!W.source && (W.pose || (selfMode() ? canSelf() : refs().some((x) => x.id === W.refId))) && S.openOutputs?.size > 0;
     const foot = W.blur
       ? [el('button', { class: 'btn', onclick: () => W.blur.resolve('cancel') }, 'Abbrechen'),
         el('button', { class: 'btn', onclick: () => W.blur.resolve('use') }, 'Trotzdem verwenden'),
