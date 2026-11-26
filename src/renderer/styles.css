@@ -416,6 +416,11 @@ details.more > summary:hover { color: var(--text); }
 .quad { display: grid; grid-template-columns: repeat(2, 1fr); gap: 3px; width: 64px; aspect-ratio: 16 / 9; padding: 3px; border-radius: 5px; background: var(--bg-field); box-shadow: inset 0 0 0 0.5px var(--line-strong); flex: none; }
 .quad.l1x2 { grid-template-columns: repeat(2, 1fr); grid-template-rows: 1fr; }
 .quad.l1x1 { grid-template-columns: 1fr; }
+.quad.pick { width: 88px; gap: 2px; padding: 2px; }
+.quad.pick button { border-radius: 3px; display: grid; place-items: center; font-size: 11px; font-weight: 600; color: #fff; line-height: 1; background: var(--bg-select); min-width: 0; min-height: 0; padding: 0; cursor: pointer; }
+.quad.pick button:hover { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.quad.pick button.cur { box-shadow: inset 0 0 0 2px var(--text); }
+.quad.pick button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .quad span { border-radius: 2px; display: grid; place-items: center; font-size: 9px; font-weight: 600; color: #fff; line-height: 1; }
 
 /* ---------- Hilfe-Menü ---------- */
@@ -440,15 +445,21 @@ details.more > summary:hover { color: var(--text); }
 .sheet {
   width: 620px; max-width: calc(100vw - 48px); border-radius: 16px; overflow: hidden;
   background: var(--bg-side); box-shadow: var(--shadow-sheet), 0 0 0 0.5px var(--line-strong);
-  display: flex; flex-direction: column; animation: rise 280ms var(--ease);
+  display: flex; flex-direction: column; animation: rise 280ms var(--ease); position: relative;
 }
+.sheet-close { position: absolute; top: 12px; right: 12px; z-index: 2; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+  color: var(--text-2); background: var(--bg-select); transition: background-color 150ms var(--ease), color 150ms var(--ease); }
+.sheet-close:hover { color: var(--text); background: var(--bg-hover); }
+.sheet-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .sheet .body { padding: 32px 44px 20px; height: 540px; display: flex; flex-direction: column; justify-content: center; }
 @media (prefers-color-scheme: light) { .sheet { background: #fff; } .sheet .group { background: var(--bg-side); box-shadow: none; } }
 .sheet .hero { display: grid; place-items: center; margin-bottom: 10px; color: var(--text-2); }
 .sheet h1 { font: 700 24px/30px var(--font-display); letter-spacing: -0.015em; margin: 0 0 6px; text-align: center; }
 .sheet .lead { text-align: center; color: var(--text-2); font-size: 14px; line-height: 20px; margin: 0 auto 22px; max-width: 440px; }
-.feat { display: grid; grid-template-columns: 36px 1fr; gap: 4px 14px; align-items: start; margin: 0 auto 16px; max-width: 440px; width: 100%; }
-.feat .fi { grid-row: span 2; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+.feats { display: grid; grid-template-columns: 1fr 1fr; gap: 22px 28px; max-width: 520px; width: 100%; margin: 4px auto 0; }
+.feat { display: grid; grid-template-columns: 28px 1fr; gap: 2px 12px; align-items: start; align-content: start; }
+.feat .fi { grid-row: span 2; width: 28px; height: 22px; display: grid; place-items: start center; color: var(--accent); }
+.feat .fi svg { width: 24px; height: 24px; stroke-width: 1.5; }
 .feat b { font-weight: 600; font-size: 13px; line-height: 18px; }
 .feat span { color: var(--text-2); font-size: 12px; line-height: 17px; }
 .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 460px; width: 100%; margin: 0 auto; }
@@ -474,11 +485,8 @@ details.more > summary:hover { color: var(--text); }
 .sheet .dots i.on { background: var(--accent); width: 18px; border-radius: 3px; }
 @keyframes fade { from { opacity: 0; } }
 /* Onboarding: Inhalt gleitet in Leserichtung herein, Blatt bleibt stehen */
-.sheet .body.ob-next { animation: ob-next 320ms var(--ease) both; }
-.sheet .body.ob-prev { animation: ob-prev 320ms var(--ease) both; }
-@keyframes ob-next { from { opacity: 0; transform: translateX(24px); } }
-@keyframes ob-prev { from { opacity: 0; transform: translateX(-24px); } }
-@media (prefers-reduced-motion: reduce) { .sheet .body.ob-next, .sheet .body.ob-prev { animation: ob-fade 160ms linear both; } }
+/* Seitenwechsel: nur der Inhalt blendet kurz über, Blatt, Knöpfe und Größe bleiben stehen */
+.sheet .body.ob-swap { animation: ob-fade 180ms var(--ease) both; }
 @keyframes ob-fade { from { opacity: 0; } }
 @keyframes rise { from { opacity: 0; transform: translateY(10px) scale(0.985); } }
 

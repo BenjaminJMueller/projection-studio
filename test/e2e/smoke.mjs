@@ -184,6 +184,73 @@ await win.evaluate(() => { window.__app.S.project.view.outputMode = 'grid'; wind
 await outWin.waitForTimeout(1500);
 await outWin.screenshot({ path: path.join(outDir, '07-ausgang-A-raster.png') });
 
+// Maus springt mit: Klick auf eine Modellecke setzt Punkt, Maus landet auf dessen Stelle am Ausgang
+{
+  await app.evaluate(({ ipcMain }) => { ipcMain.removeHandler('cursor:move'); globalThis.__cur = []; ipcMain.handle('cursor:move', (_e, p) => { globalThis.__cur.push(p); return true; }); });
+  await win.click('#modes button[data-mode=calibrate]');
+  const target = await win.evaluate(() => {
+    const { S, view, refresh } = window.__app;
+    S.activeId = 'P1'; S.activePointId = null; S.project.view.mouseFollow = true; S.project.view.showVertices = true;
+    refresh();
+    const V = S.model.featureVertices, r = view.canvas.getBoundingClientRect(), cam = view.camera;
+    const used = new Set(S.project.projectors[0].points.map((p) => p.world.join()));
+    // eine sichtbare, freie Ecke nahe der Bildmitte
+    let best = null;
+    for (let i = 0; i < V.length; i += 3) {
+      const X = [V[i], V[i + 1], V[i + 2]];
+      if (used.has(X.join())) continue;
+      const v = new cam.position.constructor(...X).project(cam);
+      if (Math.abs(v.x) > 0.5 || Math.abs(v.y) > 0.5 || v.z > 1) continue;
+      const sx = r.left + ((v.x + 1) / 2) * r.width, sy = r.top + ((1 - v.y) / 2) * r.height;
+      const hit = view.pick({ clientX: sx, clientY: sy }, true);
+      if (hit?.snapped && hit.point.every((c, k) => Math.abs(c - X[k]) < 1e-6)) { best = { x: sx, y: sy }; break; }
+    }
+    return best;
+  });
+  if (!target) errors.push('error: keine anklickbare Modellecke gefunden');
+  else {
+    const n0 = await win.evaluate(() => window.__app.S.project.projectors[0].points.length);
+    await win.mouse.click(target.x, target.y);
+    await win.waitForTimeout(900);
+    const r = await win.evaluate(() => { const { S } = window.__app; const p = S.project.projectors[0]; const pt = p.points.find((x) => x.id === S.activePointId); const d = S.displays.find((x) => x.id === S.project.outputs[0].displayId); return { n: p.points.length, image: pt?.image, bounds: d.bounds, q: p.quadrant }; });
+    const cur = await app.evaluate(() => globalThis.__cur);
+    const exp = { x: Math.round(r.bounds.x + (0.5 * (r.q % 2) + 0.5 * r.image[0] / 1920) * r.bounds.width), y: Math.round(r.bounds.y + (0.5 * Math.floor(r.q / 2) + 0.5 * r.image[1] / 1080) * r.bounds.height) };
+    if (r.n !== n0 + 1) errors.push(`error: Klick ins Modell setzt keinen Punkt (${n0} -> ${r.n})`);
+    else if (!cur.length || Math.abs(cur.at(-1).x - exp.x) > 1 || Math.abs(cur.at(-1).y - exp.y) > 1) errors.push(`error: Maus springt nicht zum Punkt ${JSON.stringify(cur)} erwartet ${JSON.stringify(exp)}`);
+    await win.screenshot({ path: path.join(outDir, '02e-kalibrierpunkte.png') });
+    await win.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z');
+  }
+}
+// Standort vorgeben: übernimmt die gelöste Position, 3D zeigt die Toleranzkugel
+{
+  await win.evaluate(() => { const { S, refresh } = window.__app; S.activeId = 'P1'; refresh(); });
+  await win.waitForTimeout(300);
+  await win.click('#swPrior');
+  await win.waitForTimeout(300);
+  await win.click('#btnPriorTake');
+  await win.waitForTimeout(1500);
+  const r = await win.evaluate(() => { const p = window.__app.S.project.projectors[0]; return { prior: p.positionPrior, ok: !!p.solution, c: p.solution?.center }; });
+  if (!r.prior || !r.ok || Math.hypot(...r.prior.center.map((v, i) => v - r.c[i])) > 0.1) errors.push('error: Standort vorgeben ' + JSON.stringify(r));
+  await win.screenshot({ path: path.join(outDir, '02f-standort.png') });
+  await win.click('#swPrior');
+}
+// Schnelle Zuordnung: P1 in HDMI B unten rechts, P8 tauscht, danach ist P2 gewählt
+{
+  await win.click('#modes button[data-mode=setup]');
+  await win.evaluate(() => { const { S, refresh } = window.__app; S.activeId = 'P1'; refresh(); });
+  await win.waitForTimeout(300);
+  await win.locator('.quad.pick').nth(1).locator('button').nth(3).click();
+  await win.waitForTimeout(300);
+  const r = await win.evaluate(() => { const { S } = window.__app; return { p1: S.project.projectors[0].output + S.project.projectors[0].quadrant, p8: S.project.projectors[7].output + S.project.projectors[7].quadrant, active: S.activeId }; });
+  if (r.p1 !== 'B3' || r.p8 !== 'A0' || r.active !== 'P2') errors.push('error: Schnelle Zuordnung ' + JSON.stringify(r));
+  await win.screenshot({ path: path.join(outDir, '03c-zuordnung.png') });
+  if (!(await win.locator('#selImageMode').count())) errors.push('error: Bildmodus fehlt beim EB-535W mit 1080p');
+  await win.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z');
+  await win.waitForTimeout(200);
+  const back = await win.evaluate(() => window.__app.S.project.projectors[0].output + window.__app.S.project.projectors[0].quadrant);
+  if (back !== 'A0') errors.push('error: Zuordnung nicht rückgängig ' + back);
+}
+
 // Kamera-Kalibrierung mit simulierter Kamera: P2 vergessen, über P1 als Bezug neu bestimmen
 await win.click('#modes button[data-mode=calibrate]');
 await win.evaluate(async (simUrl) => {

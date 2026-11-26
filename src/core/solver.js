@@ -308,6 +308,15 @@ export function solveProjector(o) {
     return { ok: false, message: 'Keine gültige Lösung gefunden – prüfe, ob die Punktpaare richtig zugeordnet sind.' };
   }
 
+  // Vorgegebener Standort: Lösungen weiter als 3 σ davon weg kommen gar nicht in Frage
+  if (priorBase.center) {
+    const { mu, sigma } = priorBase.center;
+    const near = candidates.filter((c) => { const u = unpack(c.p); return norm3(sub3(cameraCenter(u.R, u.t), mu)) <= 3 * sigma; });
+    if (!near.length) return { ok: false, message: 'Keine Lösung passt zum vorgegebenen Standort. Standort, Toleranz und Punkte prüfen.' };
+    candidates.length = 0;
+    candidates.push(...near);
+  }
+
   // Gespiegelte Lösungen nur nehmen, wenn sie deutlich besser sind
   for (const c of candidates) c.score = c.cost * (c.mirror ? 1.5 : 1) + (c.mirror ? n * pixelSigma * pixelSigma : 0);
   candidates.sort((a, b) => a.score - b.score);

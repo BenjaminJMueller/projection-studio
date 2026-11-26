@@ -30,11 +30,36 @@ const EN = {
   'Modus des Video-Wall-Controllers, z. B. 2 × 2 beim LogiLink HD0054. Die Projektoren werden der Reihe nach auf die Felder verteilt.':
     'Mode of the video wall controller, e.g. 2 × 2 on the LogiLink HD0054. Projectors are assigned to the cells in order.',
   'Kein Modell': 'No model', 'OBJ-Datei wählen': 'Choose OBJ file', 'Ändern …': 'Change …', 'Wählen …': 'Choose …', '3D-Modell': '3D model',
-  'Bildschirme': 'Displays', 'Jeder Ausgang der Grafikkarte wird in Viertel geteilt, jedes Viertel geht an einen Projektor.':
-    'Each graphics output is split into cells, each cell feeds one projector.',
+  'Bildschirme': 'Displays',
+  'Jeder Ausgang der Grafikkarte wird in Viertel geteilt, jedes Viertel geht an einen Projektor. Zuordnen: links einen Projektor wählen und hier auf sein Feld klicken, danach ist der nächste Projektor dran. Das Testbild „Nummer“ unter „Ausgabe“ zeigt auf jedem Projektor seine Nummer.':
+    'Each graphics output is split into cells, each cell feeds one projector. To assign: select a projector on the left and click its cell here, then the next projector is up. The “Number” test image under “Output” shows each projector’s number on the projector itself.',
   'Maus springt mit': 'Mouse follows',
-  'Beim Wechsel des Projektors springt der Mauszeiger auf dessen Bild am Ausgang. So muss man die Maus auf den Projektionen nicht suchen.':
-    'When you switch projectors, the mouse pointer jumps to its image on the output, so you never have to hunt for it on the projections.',
+  'Nach dem Klick ins Modell springt der Mauszeiger auf die Stelle des neuen Punkts am Ausgang, beim Wechsel des Projektors auf dessen Bild. So muss man die Maus auf den Projektionen nicht suchen. Auch über das Maus-Symbol in der 3D-Ansicht schaltbar.':
+    'After a click in the model, the mouse pointer jumps to the new point on the output; when you switch projectors, it jumps to that projector’s image. So you never have to hunt for it on the projections. Also available as the mouse icon in the 3D view.',
+  'Maus springt mit: nach dem Klick ins Modell landet der Mauszeiger auf dem Punkt am Projektor':
+    'Mouse follows: after a click in the model, the pointer lands on the point on the projector',
+  'Mögliche Kalibrierpunkte zeigen: Ecken und Grate des Modells, an denen ein Klick einrastet':
+    'Show possible calibration points: corners and ridges of the model where a click snaps',
+  'Kalibrierpunkte zeigen': 'Show calibration points',
+  'Maus springt zum Projektor': 'Mouse jumps to the projector',
+  'Maus springt zum Projektor, sobald die Ausgänge geöffnet sind': 'Mouse jumps to the projector once the outputs are open',
+  'Maus bleibt, wo sie ist': 'Mouse stays where it is',
+  'Standort': 'Location', 'Standort vorgeben': 'Set location', 'Aus: der Projektor darf überall stehen': 'Off: the projector may be anywhere',
+  'Position (m)': 'Position (m)', 'Toleranz': 'Tolerance', 'Übernehmen': 'Take over',
+  'Aktuelle Position aus der Kalibrierung übernehmen': 'Take the current position from the calibration',
+  'Wie genau der Standort bekannt ist. Kleiner heißt: die Kalibrierung bleibt näher an dieser Position.':
+    'How precisely the location is known. Smaller means the calibration stays closer to this position.',
+  'Wo der Projektor ungefähr steht. Lösungen, die weiter als die dreifache Toleranz davon entfernt liegen, werden verworfen. So tauchen unsinnige Positionen nicht mehr auf. Bei einem Spiegel zählt das Spiegelbild des Objektivs, also die Stelle hinter dem Spiegel. Am einfachsten nach einer guten Kalibrierung „Übernehmen“ wählen und die Toleranz klein stellen.':
+    'Roughly where the projector is. Solutions more than three times the tolerance away are discarded, so implausible positions no longer appear. With a mirror, the mirror image of the lens counts, i.e. the spot behind the mirror. Easiest: after a good calibration choose “Take over” and set a small tolerance.',
+  'Keine Lösung passt zum vorgegebenen Standort. Standort, Toleranz und Punkte prüfen.': 'No solution fits the given location. Check location, tolerance and points.',
+  'Bildmodus': 'Image mode', 'Normal / 16:9 (ganzes Bild)': 'Normal / 16:9 (whole image)', 'Zoom (füllt das Panel, schneidet ab)': 'Zoom (fills the panel, crops)', 'Nativ (1:1, schneidet ab)': 'Native (1:1, crops)',
+  'So wie im Menü des Projektors unter Seitenverhältnis eingestellt. Panel {0} × {1}, Signal {2} × {3}. Bei Zoom und Nativ schneidet der Projektor einen Teil des Signals ab, das berücksichtigen Kalibrierung und Überblendung. „Voll“ (gestreckt) wird nicht unterstützt.':
+    'As set in the projector menu under aspect ratio. Panel {0} × {1}, signal {2} × {3}. With Zoom and Native the projector crops part of the signal; calibration and blending take that into account. “Full” (stretched) is not supported.',
+  'Nach dem Klick ins Modell springt der Mauszeiger auf die Stelle des neuen Punkts am Ausgang. Dort klicken oder ziehen, dann mit der Maus zurück ins Modell.':
+    'After a click in the model, the mouse pointer jumps to the new point on the output. Click or drag there, then move the mouse back into the model.',
+  'Drehen': 'Rotate', '{0}° rechts': '{0}° clockwise', '{0}° links': '{0}° counterclockwise',
+  'Dreht das Video auf allen Ausgängen, z. B. wenn es nach dem Umstecken oder durch die Lage des Modells auf dem Kopf steht. Die Kalibrierung bleibt unverändert.':
+    'Rotates the video on all outputs, e.g. when it is upside down after re-plugging or because of how the model is oriented. The calibration stays unchanged.',
   'Name': 'Name', 'Verwenden': 'Use', 'Ausgang': 'Output', 'Keiner': 'None', 'Bildbereich': 'Image area', 'Auflösung': 'Resolution',
   'Auflösung des Signals, das der Beamer bekommt, nicht die native Panelauflösung.': 'Resolution of the signal the projector receives, not its native panel resolution.',
   'Objektiv': 'Lens', 'Montage': 'Mounting', 'Automatisch': 'Automatic', 'Achse unter dem Bild': 'Axis below image', 'Achse über dem Bild': 'Axis above image',
@@ -125,20 +150,27 @@ const EN = {
   'Ordner der TouchDesigner-Datei wählen (dort entsteht „kalibrierung“)': 'Choose the folder of the TouchDesigner file (a “kalibrierung” folder is created there)',
   'Alle Punkte gelöscht. Mit Strg/Cmd+Z rückgängig.': 'All points deleted. Undo with Ctrl/Cmd+Z.', 'Letzte Sitzung wiederhergestellt': 'Last session restored',
   // ---- Einführung, Hilfe
-  'Willkommen': 'Welcome', 'Richte deine Projektoren am 3D-Modell aus, blende sie weich ineinander und gib das Ergebnis direkt aus.': 'Align your projectors to the 3D model, blend them softly and output the result directly.',
-  'Modell laden und festlegen, welcher Bildschirm welche Projektoren speist.': 'Load the model and decide which display feeds which projectors.',
-  'Pro Projektor ein paar Ecken im Modell anklicken und auf der echten Decke treffen.': 'For each projector, click a few corners in the model and hit them on the real ceiling.',
-  'Überlappungen, Bogenseiten und Helligkeit werden automatisch ausgeglichen.': 'Overlaps, arch sides and brightness are balanced automatically.',
-  'Testbilder auf den Projektoren zeigen oder an TouchDesigner übergeben.': 'Show test patterns on the projectors or hand over to TouchDesigner.',
+  'Willkommen': 'Welcome',
+  'Projection Studio richtet mehrere Projektoren an einem 3D-Modell des Raums aus, blendet sie zu einem Bild zusammen und spielt Inhalte darauf ab. Vier Schritte:':
+    'Projection Studio aligns several projectors to a 3D model of the room, blends them into one image and plays content on it. Four steps:',
+  '3D-Modell des Raums laden und festlegen, welcher HDMI-Ausgang welche Projektoren speist, direkt oder über einen Video-Wall-Controller.':
+    'Load the 3D model of the room and decide which HDMI output feeds which projectors, directly or through a video wall controller.',
+  'Pro Projektor einige Ecken im Modell anklicken und dieselbe Stelle im Raum treffen. Daraus ergeben sich Position, Ausrichtung und Objektiv.':
+    'For each projector, click a few corners in the model and hit the same spot in the room. This gives position, orientation and lens.',
+  'Weiche Übergänge in den Überlappungen und gleichmäßige Helligkeit, automatisch aus der Kalibrierung.':
+    'Soft transitions in the overlaps and even brightness, automatically from the calibration.',
+  'Videos über alle Projektoren abspielen oder Kalibrierung und Masken an TouchDesigner übergeben.':
+    'Play videos across all projectors or hand calibration and masks over to TouchDesigner.',
+  'Einführung schließen': 'Close introduction', 'Schließen (Esc)': 'Close (Esc)',
   'Womit möchtest du starten?': 'How would you like to start?',
   'Die Demo ist eine Gewölbedecke mit acht Projektoren, gut zum Ausprobieren. Alles lässt sich später unter „Einrichten“ ändern.': 'The demo is a vaulted ceiling with eight projectors, good for trying things out. Everything can be changed later under “Set up”.',
   'Mit der Demo': 'With the demo', 'Gewölbedecke, 8 Projektoren': 'Vaulted ceiling, 8 projectors', 'Eigenes 3D-Modell': 'Own 3D model', 'OBJ-Datei wählen …': 'Choose OBJ file …',
   'Projektor 1–4 hängen an HDMI A, Projektor 5–8 an HDMI B, jeweils ein Viertel des Bildes.': 'Projectors 1–4 are on HDMI A, projectors 5–8 on HDMI B, one quarter of the image each.',
   'So setzt du einen Punkt': 'How to place a point', 'Vier Punkte pro Projektor reichen für eine erste Lösung. Sechs gut verteilte sind ideal.': 'Four points per projector give a first solution. Six well-spread points are ideal.',
-  'Ecke anklicken': 'Click a corner', 'Eine markante Ecke im 3D-Modell anklicken.': 'Click a distinct corner in the 3D model.', 'Fadenkreuz schieben': 'Move the crosshair',
-  'Am Projektor dieselbe Ecke an der Decke treffen, mit Maus oder Pfeiltasten.': 'On the projector, hit the same corner on the ceiling with the mouse or arrow keys.',
+  'Ecke anklicken': 'Click a corner', 'Einen der weißen Punkte im 3D-Modell anklicken, am besten weit außen im Bild des Projektors.': 'Click one of the white dots in the 3D model, ideally far out in the projector’s image.', 'Fadenkreuz schieben': 'Move the crosshair',
+  'Die Maus springt auf den Projektor. Dort das Fadenkreuz auf dieselbe Ecke im Raum ziehen, fein mit den Pfeiltasten.': 'The mouse jumps to the projector. Drag the crosshair onto the same corner in the room there, fine-tune with the arrow keys.',
   'Prüfen': 'Check', 'Ab vier Punkten erscheinen die Kanten. Wo es nicht passt, nachsetzen.': 'From four points the edges appear. Where it does not fit, add more.',
-  'Überspringen': 'Skip', 'Zurück': 'Back', 'Weiter': 'Next', 'Klick': 'Click', 'Punkt im Modell setzen': 'Place point in the model', 'Fadenkreuz verschieben': 'Move crosshair',
+  'Zurück': 'Back', 'Weiter': 'Next', 'Klick': 'Click', 'Punkt im Modell setzen': 'Place point in the model', 'Fadenkreuz verschieben': 'Move crosshair',
   'mit Pfeil: 10 Pixel': 'with arrow: 10 pixels', 'Nächster Punkt': 'Next point', 'Entf': 'Del', 'Punkt löschen': 'Delete point', 'Projektor wählen': 'Select projector',
   'Esc': 'Esc', 'Auswahl aufheben': 'Deselect', 'Strg': 'Ctrl', 'Einführung anzeigen': 'Show introduction', '3D-Modell laden …': 'Load 3D model …', 'Tastenkürzel': 'Keyboard shortcuts',
   'Sprache': 'Language',
@@ -552,6 +584,8 @@ const PATTERNS = [
   [/^Punkt (\S*) passt nicht \((.+) px\)$/, (m) => `Point ${m[1]} does not fit (${m[2]} px)`],
   [/^Punkt (\d+)$/, (m) => `Point ${m[1]}`],
   [/^Gruppe (\d+)$/, (m) => `Group ${m[1]}`],
+  [/^(.+) tauscht den Platz$/, (m) => `${tr(m[1])} swaps places`],
+  [/^(.+): frei$/, (m) => `${tr(m[1])}: free`],
   [/^(.+) → (.+)$/, (m) => `${tr(m[1])} → ${tr(m[2])}`],
 ];
 

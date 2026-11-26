@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { makeCoverageMaterial, frustumLines, viewProjMatrix, applySolutionToCamera } from '../shared/scene.js';
+import { lensFor } from '../core/lenses.js';
 
 export class View3D {
   constructor(canvas, handlers) {
@@ -61,13 +62,41 @@ export class View3D {
     if (this.mesh) {
       this.scene.remove(this.mesh, this.edges);
     }
+    if (this.vertices) { this.scene.remove(this.vertices); this.vertices.geometry.dispose(); }
     this.model = model;
     this.mesh = new THREE.Mesh(model.geometry, this.material);
     this.edges = new THREE.LineSegments(model.edges, new THREE.LineBasicMaterial({ color: 0x1b1e25, transparent: true, opacity: 0.85 }));
     this.scene.add(this.mesh, this.edges);
     this.featurePts = model.featureVertices;
+    this._buildVertices();
     this.markerSize = model.radius * 0.012;
     this.focus();
+  }
+
+  /**
+   * Mögliche Kalibrierpunkte (Einrast-Ecken) als kleine Punkte: ein einziger Zeichenaufruf,
+   * feste Größe in Bildschirmpixeln, verdeckte Ecken bleiben verdeckt.
+   */
+  _buildVertices() {
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(this.featurePts, 3));
+    if (!View3D.dotTex) {
+      const c = document.createElement('canvas');
+      c.width = c.height = 32;
+      const g = c.getContext('2d');
+      g.beginPath(); g.arc(16, 16, 13, 0, Math.PI * 2);
+      g.fillStyle = 'rgba(0,0,0,.55)'; g.fill();
+      g.beginPath(); g.arc(16, 16, 9, 0, Math.PI * 2);
+      g.fillStyle = '#ffffff'; g.fill();
+      View3D.dotTex = new THREE.CanvasTexture(c);
+    }
+    const mat = new THREE.PointsMaterial({ size: 5 * Math.min(window.devicePixelRatio, 2), sizeAttenuation: false, map: View3D.dotTex, transparent: true, opacity: 0.75, alphaTest: 0.2, depthWrite: false });
+    // leicht zur Kamera ziehen, damit Punkte auf der Fläche nicht flackern
+    mat.onBeforeCompile = (sh) => { sh.vertexShader = sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n\tgl_Position.z -= 0.002 * gl_Position.w;'); };
+    this.vertices = new THREE.Points(geom, mat);
+    this.vertices.renderOrder = 5;
+    this.vertices.visible = this.showVertices !== false && this.calibrating !== false;
+    this.scene.add(this.vertices);
   }
 
   focus() {
@@ -90,6 +119,8 @@ export class View3D {
     this.activeId = activeId;
     this.activePointId = activePointId;
     this.pendingRepick = pendingRepick;
+    this.showVertices = project.view?.showVertices !== false;
+    if (this.vertices) this.vertices.visible = this.showVertices && this.calibrating !== false;
     const u = this.material.uniforms;
     let k = 0, activeIdx = -1;
     for (const p of project.projectors) {
@@ -98,6 +129,8 @@ export class View3D {
       u.uViewProj.value[k].copy(viewProjMatrix(p.solution));
       u.uColor.value[k].set(p.color);
       u.uRes.value[k].set(p.solution.width, p.solution.height);
+      const vis = lensFor(p, project).visible || [1, 1];
+      u.uVis.value[k].set(vis[0], vis[1]);
       if (p.id === activeId) activeIdx = k;
       k++;
     }
@@ -111,13 +144,21 @@ export class View3D {
   _buildFrustums() {
     const g = this.groups.frustums;
     g.clear();
-    if (!this.showFrustums || !this.model) return;
+    if (!this.model) return;
+    // vorgegebener Standort des gewählten Projektors: Kugel mit Radius = Toleranz
+    const ap = this.project.projectors.find((x) => x.id === this.activeId);
+    if (ap?.positionPrior?.center) {
+      const sph = new THREE.Mesh(new THREE.SphereGeometry(ap.positionPrior.sigma || 0.25, 24, 16), new THREE.MeshBasicMaterial({ color: ap.color, wireframe: true, transparent: true, opacity: 0.22, depthWrite: false }));
+      sph.position.set(...ap.positionPrior.center);
+      g.add(sph);
+    }
+    if (!this.showFrustums) return;
     this.project.projectors.forEach((p, idx) => {
       const s = p.solution;
       if (!s) return;
       const dist = Math.hypot(...s.center.map((c, i) => c - this.model.center.getComponent(i)));
       const geom = new THREE.BufferGeometry();
-      geom.setAttribute('position', new THREE.BufferAttribute(frustumLines(s, dist * 1.05), 3));
+      geom.setAttribute('position', new THREE.BufferAttribute(frustumLines(s, dist * 1.05, lensFor(p, this.project).visible), 3));
       const active = p.id === this.activeId;
       const line = new THREE.LineSegments(geom, new THREE.LineBasicMaterial({ color: p.color, transparent: true, opacity: active ? 1 : 0.45 }));
       g.add(line);

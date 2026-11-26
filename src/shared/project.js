@@ -144,9 +144,9 @@ export function newProject() {
       incFilter: true, // Streiflicht ausblenden
       maxIncidence: 80,
     },
-    view: { outputMode: 'edges', showPoints: true, showMask: false, mouseFollow: false },
+    view: { outputMode: 'edges', showPoints: true, showMask: false, mouseFollow: true, showVertices: true },
     td: { live: false, host: '127.0.0.1', port: 7000 },
-    playback: { items: [], mapping: 'top', loop: true, fps: 0 },
+    playback: { items: [], mapping: 'top', rotate: 0, loop: true, fps: 0 },
     audio: { enabled: false, deviceId: '', sampleRate: 0, buffer: 1024, speakers: 2, master: 0, channels: [] },
   };
 }
@@ -195,6 +195,32 @@ export function arrangeOutput(project, outputId) {
   const ps = project.projectors.filter((p) => p.output === outputId);
   ps.forEach((p, i) => { p.quadrant = i % n; });
   return Math.max(0, ps.length - n);
+}
+
+/**
+ * Projektor auf ein Feld eines Ausgangs legen. Liegt dort schon ein anderer Projektor,
+ * bekommt dieser den bisherigen Platz (Tausch). Rückgabe: der verdrängte Projektor oder null.
+ */
+export function assignCell(project, projectorId, outputId, cell) {
+  const p = project.projectors.find((x) => x.id === projectorId);
+  const o = project.outputs.find((x) => x.id === outputId && !x.solo);
+  if (!p || !o) return null;
+  const n = cellCount(o);
+  const q = ((cell % n) + n) % n;
+  const other = project.projectors.find((x) => x !== p && x.output === o.id && (n === 1 || x.quadrant % n === q));
+  if (other) { other.output = p.output; other.quadrant = p.quadrant; }
+  p.output = o.id;
+  p.quadrant = q;
+  return other || null;
+}
+
+/**
+ * Punkt im Projektorbild (u, v in Pixeln) -> Bildschirmposition (wie screen.getAllDisplays).
+ * bounds: { x, y, width, height } des Bildschirms, rect: Feld aus quadrantRect().
+ */
+export function imageToScreen(bounds, rect, u, v, W, H) {
+  const fu = Math.max(0, Math.min(1, u / W)), fv = Math.max(0, Math.min(1, v / H));
+  return { x: Math.round(bounds.x + (rect.x + fu * rect.w) * bounds.width), y: Math.round(bounds.y + (rect.y + fv * rect.h) * bounds.height) };
 }
 
 export const QUADRANT_NAMES = ['oben links', 'oben rechts', 'unten links', 'unten rechts'];

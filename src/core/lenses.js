@@ -120,10 +120,25 @@ export const PROJECTOR_DB = [
     axis: { kind: 'shift', v: [0, 0.44], h: [-0.2, 0.2] }, source: 'Panasonic PT-VMZ60 Leaflet (Lens Shift V +44 %/0 %, H ±20 %)' },
 ];
 
+/**
+ * Bildmodus am Projektor (Menü „Seitenverhältnis“): wie das Signal aufs Panel kommt, wenn sein
+ * Seitenverhältnis oder seine Auflösung vom Panel abweicht.
+ *  fit:    ganzes Signal sichtbar, Ränder oben/unten oder seitlich (Epson: Normal, 16:9)
+ *  fill:   füllt das Panel, Überstand wird abgeschnitten (Epson: Zoom)
+ *  native: Pixel 1:1, nur die Mitte des Signals ist sichtbar (Epson: Nativ)
+ * Gestrecktes Bild (Epson: Voll) hat nicht-quadratische Pixel und wird nicht unterstützt.
+ */
+export const IMAGE_MODES = [
+  ['fit', 'Normal / 16:9 (ganzes Bild)'],
+  ['fill', 'Zoom (füllt das Panel, schneidet ab)'],
+  ['native', 'Nativ (1:1, schneidet ab)'],
+];
+
 /** Vorwissen für den Solver aus einem Datenblatt, bezogen auf das Eingangssignal. */
-export function lensFromSpec(spec, signal = spec.native) {
+export function lensFromSpec(spec, signal = spec.native, mode = 'fit') {
   const [pw, ph] = spec.native, [sw, sh] = signal;
-  const s = Math.min(pw / sw, ph / sh); // Signal wird ins Panel eingepasst (Ränder oben/unten oder seitlich)
+  // Signal -> Panel: eingepasst (Ränder), füllend (abgeschnitten) oder 1:1
+  const s = mode === 'native' ? 1 : mode === 'fill' ? Math.max(pw / sw, ph / sh) : Math.min(pw / sw, ph / sh);
   const iw = sw * s, ih = sh * s, top = (ph - ih) / 2;
   const k = pw / iw; // Wurfverhältnis bezieht sich im Datenblatt auf die volle Panelbreite
   const [t0, t1] = spec.throw;
@@ -140,6 +155,8 @@ export function lensFromSpec(spec, signal = spec.native) {
     cxSigmaFrac: 0.03,
     cySigmaFrac: 0.06,
     cyFlip: true,
+    // sichtbarer Anteil des Signals (zentriert), 1 = alles
+    visible: [Math.min(1, pw / iw), Math.min(1, ph / ih)],
   };
   const ax = spec.axis || { kind: 'fixed', below: 0 };
   if (ax.kind === 'shift') {
@@ -160,10 +177,22 @@ export function lensFromSpec(spec, signal = spec.native) {
 /** Objektiv-Vorwissen für einen Projektor: Voreinstellung, Datenbank oder eigener Typ des Projekts. */
 export function lensFor(p, project) {
   const id = p.lens || '';
+  const mode = p.imageMode || 'fit';
   if (id.startsWith('db:') || id.startsWith('custom:')) {
     const key = id.slice(id.indexOf(':') + 1);
     const spec = id.startsWith('db:') ? PROJECTOR_DB.find((x) => x.id === key) : project?.projectorTypes?.find((x) => x.id === key);
-    if (spec) return lensFromSpec(spec, p.resolution);
+    if (spec) return lensFromSpec(spec, p.resolution, mode);
   }
+  // Epson-Voreinstellungen mit anderem Bildmodus: aus dem Datenblatt rechnen
+  if (mode !== 'fit' && id.startsWith('epson-eb535w')) return { ...lensFromSpec(PROJECTOR_DB.find((x) => x.id === 'epson-eb-535w'), p.resolution, mode), id };
   return getLensPreset(id);
+}
+
+/** Native Panelauflösung eines Projektor-Typs, falls bekannt (für den Bildmodus). */
+export function nativeOf(p, project) {
+  const id = p.lens || '';
+  if (id.startsWith('epson-eb535w')) return [1280, 800];
+  const key = id.slice(id.indexOf(':') + 1);
+  const spec = id.startsWith('db:') ? PROJECTOR_DB.find((x) => x.id === key) : id.startsWith('custom:') ? project?.projectorTypes?.find((x) => x.id === key) : null;
+  return spec?.native || null;
 }

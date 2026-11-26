@@ -1,7 +1,7 @@
 // Hauptfenster: Zustand, Bedienlogik, Solver-Anbindung, Export.
 import { buildModel } from '../shared/scene.js';
-import { newProject, migrateProject, groupLabel, groupsOf, addProjector, addOutput, connectionOf, setConnection, MAX_PROJECTORS, MAX_VIDEO_OUTPUTS, QUADRANT_NAMES, LAYOUTS, layoutOf, cellCount, cellName, arrangeOutput, quadrantRect } from '../shared/project.js';
-import { LENS_PRESETS, PROJECTOR_DB, OFFSET_FORMATS, offsetToBelow, lensFor } from '../core/lenses.js';
+import { newProject, migrateProject, groupLabel, groupsOf, addProjector, addOutput, connectionOf, setConnection, MAX_PROJECTORS, MAX_VIDEO_OUTPUTS, QUADRANT_NAMES, LAYOUTS, layoutOf, cellCount, cellName, arrangeOutput, quadrantRect, assignCell, imageToScreen } from '../shared/project.js';
+import { LENS_PRESETS, PROJECTOR_DB, OFFSET_FORMATS, offsetToBelow, lensFor, nativeOf, IMAGE_MODES } from '../core/lenses.js';
 import { projectPoint, suggestNextImageRegion } from '../core/solver.js';
 import { exportProjector } from '../core/export.js';
 import { View3D } from './view3d.js';
@@ -14,7 +14,7 @@ import { createTuning } from './tuning.js';
 import { createCamcal } from './camcal.js';
 import { peakingResponse } from '../shared/roomeq.js';
 import { AudioEngine, MAX_SPEAKERS, SOURCE_CHANNELS, SAMPLE_RATES, BUFFER_SIZES, speakerAt } from './audio.js';
-import { defaultWarp, resizeWarp, isIdentity, inverse, gridBase, touchDesignerShader, makeWarp, GRID_SIZES, minJacobian, setBezierHandle } from '../shared/warp.js';
+import { defaultWarp, resizeWarp, isIdentity, inverse, forward, gridBase, touchDesignerShader, makeWarp, GRID_SIZES, minJacobian, setBezierHandle } from '../shared/warp.js';
 import { visibleBezierHandles } from '../shared/warpdraw.js';
 import { tr, setLang, getLang, locale, LANGS, translateDom } from '../shared/i18n.js';
 
@@ -71,7 +71,7 @@ const active = () => S.project.projectors.find((p) => p.id === S.activeId);
 const activePoint = () => active()?.points.find((x) => x.id === S.activePointId);
 
 function snapshot() {
-  return JSON.stringify(S.project.projectors.map((p) => ({ id: p.id, points: p.points, masks: p.masks, nextPointId: p.nextPointId, centerHint: p.centerHint || null, warp: p.warp || null })));
+  return JSON.stringify(S.project.projectors.map((p) => ({ id: p.id, points: p.points, masks: p.masks, nextPointId: p.nextPointId, centerHint: p.centerHint || null, warp: p.warp || null, output: p.output, quadrant: p.quadrant, positionPrior: p.positionPrior || null, imageMode: p.imageMode || 'fit' })));
 }
 function pushUndo() {
   undoStack.push({ snap: snapshot(), activeId: S.activeId, activePointId: S.activePointId });
@@ -83,7 +83,8 @@ function restore(entry) {
   for (const d of data) {
     const p = S.project.projectors.find((x) => x.id === d.id);
     if (!p) continue;
-    const changed = JSON.stringify(p.points) !== JSON.stringify(d.points);
+    const key = (x) => JSON.stringify([x.points, x.positionPrior || null, x.imageMode || 'fit', x.centerHint || null]);
+    const changed = key(p) !== key(d);
     Object.assign(p, d);
     if (changed) scheduleSolve(p);
   }
@@ -190,7 +191,8 @@ function onModelPick(world, snapped) {
     S.pendingRepick = false;
     scheduleSolve(p);
     toast('3D-Position aktualisiert');
-    return refresh();
+    refresh();
+    return mouseToPointSoon(activePoint());
   }
   pushUndo();
   let image;
@@ -214,6 +216,7 @@ function onModelPick(world, snapped) {
   scheduleSolve(p);
   markDirty();
   refresh();
+  mouseToPointSoon(pt);
 }
 
 /** Modell-Ecken, die in der leeren Bildregion landen würden: werden im 3D-Modell blau markiert. */
@@ -341,9 +344,11 @@ function refresh(light = false) {
     renderDocState();
     renderTransport();
     if (A().enabled) syncAudio();
+    syncToolToggles();
+    view.calibrating = S.mode === 'calibrate' || !!S.pickCenter; // Einrast-Ecken nur beim Punkte-Setzen zeigen
     view.update(S.project, S.activeId, S.activePointId, S.pendingRepick, showSuggest() ? S.results[S.activeId]?.candidates : null);
     preview.mode = previewMode();
-    preview.set(active(), S.activePointId, { activeHandle: S.activeHandle, activePin: S.activePin, suggest: showSuggest() ? S.results[S.activeId]?.suggest : null, activeMaskId: S.activeMaskId, blendImg: blendImgFor(S.activeId) });
+    preview.set(active(), S.activePointId, { visible: lensFor(active(), S.project).visible, activeHandle: S.activeHandle, activePin: S.activePin, suggest: showSuggest() ? S.results[S.activeId]?.suggest : null, activeMaskId: S.activeMaskId, blendImg: blendImgFor(S.activeId) });
     $('#previewCaption').replaceChildren(el('span', {}, el('b', {}, displayName(active())), outputLabel(active())), el('span', {}, `${active().resolution[0]} × ${active().resolution[1]}`));
     $('#btnUndo').disabled = !undoStack.length;
     $('#btnRedo').disabled = !redoStack.length;
@@ -539,6 +544,38 @@ function quadDiagram(o) {
   return el('div', { class: 'quad', style: `grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rows},1fr)` }, ...cells);
 }
 
+/**
+ * Schnelle Zuordnung: Felder eines Ausgangs als Knöpfe. Ein Klick legt den gewählten Projektor
+ * in dieses Feld (ein Projektor dort tauscht den Platz) und wählt den nächsten Projektor.
+ * So sind 8 Projektoren mit 8 Klicks zugeordnet.
+ */
+function quadPicker(o) {
+  const { rows, cols } = layoutOf(o);
+  const n = rows * cols;
+  const ap = active();
+  const cells = Array.from({ length: n }, (_, q) => {
+    const p = S.project.projectors.find((x) => x.output === o.id && (n === 1 || x.quadrant % n === q));
+    const here = p === ap;
+    const where = n > 1 ? `${o.name} · ${cellName(o, q)}` : o.name;
+    return el('button', {
+      type: 'button', class: here ? 'cur' : '', style: p ? `background:${p.color}` : null,
+      'data-tip': here ? `${displayName(ap)} · ${where}` : `${displayName(ap)} → ${where}`,
+      'aria-label': p ? `${where}: ${displayName(p)}` : `${where}: frei`,
+      onclick: () => {
+        if (here) return;
+        pushUndo();
+        const other = assignCell(S.project, ap.id, o.id, q);
+        markDirty();
+        const list = S.project.projectors.filter((x) => x.enabled);
+        const next = list[(list.indexOf(ap) + 1) % list.length];
+        toast(other ? `${displayName(ap)} → ${where} · ${displayName(other)} tauscht den Platz` : `${displayName(ap)} → ${where}`);
+        if (next && next !== ap) selectProjector(next.id); else refresh();
+      },
+    }, p ? String(indexOf(p) + 1) : '');
+  });
+  return el('div', { class: 'quad pick', style: `grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rows},1fr)` }, ...cells);
+}
+
 /** Merkmal eines Bildschirms, das auch nach Neustart oder Umstecken gleich bleibt. */
 const displayKey = (d) => d && `${d.label}|${d.pixelSize.width}x${d.pixelSize.height}`;
 
@@ -583,16 +620,30 @@ async function displaysChanged() {
   refresh();
 }
 
-/** Maus auf die Mitte des gewählten Projektors setzen (Testausgang bevorzugt). */
-function mouseToProjector() {
+/**
+ * Maus auf das Bild des gewählten Projektors setzen (Testausgang bevorzugt): auf den Bildpunkt
+ * image = [u, v] in Projektorpixeln, sonst auf die Bildmitte. Nur bei geöffneten Ausgängen auf diesem Rechner.
+ */
+function mouseToProjector(image = null) {
   if (!S.project.view.mouseFollow || !S.openOutputs.size) return;
   const p = active();
   const solo = S.project.outputs.find((o) => o.solo && o.displayId != null && S.openOutputs.has(o.displayId));
-  const o = solo || S.project.outputs.find((x) => x.id === p.output && x.displayId != null && S.openOutputs.has(x.displayId));
+  const o = solo || S.project.outputs.find((x) => x.id === p.output && !isRemote(x) && x.displayId != null && S.openOutputs.has(x.displayId));
   const d = o && S.displays.find((x) => x.id === o.displayId);
   if (!d) return;
-  const rc = quadrantRect(o, p.quadrant);
-  api.moveCursor(Math.round(d.bounds.x + (rc.x + rc.w / 2) * d.bounds.width), Math.round(d.bounds.y + (rc.y + rc.h / 2) * d.bounds.height));
+  const [W, H] = p.resolution;
+  let [u, v] = image || [W / 2, H / 2];
+  // Feinkorrektur verschiebt den Punkt auf dem Ausgang
+  if (image && !isIdentity(p.warp)) { const [fu, fv] = forward(p.warp, u / W, v / H); u = fu * W; v = fv * H; }
+  const at = imageToScreen(d.bounds, quadrantRect(o, p.quadrant), u, v, W, H);
+  api.moveCursor(at.x, at.y);
+}
+/** Nach dem Setzen eines Punkts im Modell: kurz warten, dann die Maus auf seine Stelle am Projektor setzen. */
+let mouseTimer = 0;
+function mouseToPointSoon(pt) {
+  clearTimeout(mouseTimer);
+  if (!S.project.view.mouseFollow || !S.openOutputs.size || !pt?.image) return;
+  mouseTimer = setTimeout(() => { if (activePoint() === pt) mouseToProjector(pt.image); }, 250);
 }
 
 /** „Projektor 1 bis 4“ bei durchgehender Folge, sonst „Projektoren 1, 3, 9“. */
@@ -744,7 +795,7 @@ function outputRows({ solo = true } = {}) {
     const mismatch = d && want && (d.pixelSize.width !== want[0] || d.pixelSize.height !== want[1]);
     const sub = o.solo ? 'optional · zeigt den gewählten Projektor' : ps.length ? numberList(ps) : 'nicht belegt';
     return el('div', { class: 'r stack' },
-      el('div', { class: 'lbl', style: 'gap:10px' }, quadDiagram(o),
+      el('div', { class: 'lbl', style: 'gap:10px' }, o.solo ? quadDiagram(o) : quadPicker(o),
         el('span', {}, o.name, el('span', { class: 'sub' }, sub),
           mismatch ? el('span', { class: 'sub', style: 'color:var(--warn)' }, `Bildschirm hat ${d.pixelSize.width} × ${d.pixelSize.height}, erwartet ${want[0]} × ${want[1]}`) : null),
         o.solo ? infoBtn('Optional, nur als Hilfe beim Kalibrieren: zeigt immer den Projektor, der gerade links gewählt ist, im ganzen Bild. Ein fest angeschlossener Projektor bekommt dagegen einen normalen HDMI-Ausgang mit „1 Projektor“.') : null),
@@ -780,12 +831,12 @@ function renderSetup() {
   put('#paneSetup', 
     gtitle('3D-Modell'),
     group(modelRow()),
-    gtitle('Bildschirme', infoBtn('Jeder Ausgang der Grafikkarte wird in Viertel geteilt, jedes Viertel geht an einen Projektor.')),
+    gtitle('Bildschirme', infoBtn('Jeder Ausgang der Grafikkarte wird in Viertel geteilt, jedes Viertel geht an einen Projektor. Zuordnen: links einen Projektor wählen und hier auf sein Feld klicken, danach ist der nächste Projektor dran. Das Testbild „Nummer“ unter „Ausgabe“ zeigt auf jedem Projektor seine Nummer.')),
     group(connectionRow(), ...outputRows(),
       S.project.outputs.filter((x) => !x.solo).length < MAX_VIDEO_OUTPUTS ? el('div', { class: 'r' }, el('div', { class: 'lbl' }, el('span', { class: 'sub' }, 'Weiterer Grafikkarten-Ausgang')),
         el('div', { class: 'ctl' }, el('button', { class: 'btn', id: 'btnAddOutput', onclick: () => { const o = addOutput(S.project); if (o) { markDirty(); refresh(); toast(`${o.name} angelegt`); } } }, ic('plus', 14), 'Ausgang hinzufügen'))) : null,
       r('Maus springt mit', switchCtl(!!S.project.view.mouseFollow, (v) => { S.project.view.mouseFollow = v; markDirty(); refresh(); if (v) mouseToProjector(); }),
-        { tip: 'Beim Wechsel des Projektors springt der Mauszeiger auf dessen Bild am Ausgang. So muss man die Maus auf den Projektionen nicht suchen.' })),
+        { tip: 'Nach dem Klick ins Modell springt der Mauszeiger auf die Stelle des neuen Punkts am Ausgang, beim Wechsel des Projektors auf dessen Bild. So muss man die Maus auf den Projektionen nicht suchen. Auch über das Maus-Symbol in der 3D-Ansicht schaltbar.' })),
     gtitle('Mehrere Rechner', infoBtn('Weitere Rechner im selben Netz können Ausgänge übernehmen. Dort die App starten und „Ausgaberechner“ wählen, hier „Hauptrechner“. Projekt, Modell und Videos werden automatisch übertragen, die Wiedergabe läuft über eine gemeinsame Uhr. Ton kommt nur vom Hauptrechner.')),
     group(...clusterGroup()),
     gtitle(displayName(p)),
@@ -811,6 +862,7 @@ function renderSetup() {
         set(() => { p.lens = v; }, true);
       }), { tip: lens.note }),
       p.lens.startsWith('custom:') ? typeEditor(p) : null,
+      imageModeRow(p, set),
       r('Montage', select([['auto', 'Automatisch'], ['normal', 'Achse unter dem Bild'], ['flipped', 'Achse über dem Bild']], p.mountMode, (v) => set(() => { p.mountMode = v; }, true)),
         { tip: 'Kurzdistanz-Beamer projizieren komplett auf eine Seite der Objektivachse. Je nach Menü-Einstellung (Decke/Tisch) liegt sie über oder unter dem Bild. Automatisch prüft beides.' }),
     ),
@@ -822,6 +874,14 @@ function renderSetup() {
         r('Render', input(p.tdRender, (v) => { p.tdRender = v; markDirty(); }), { tip: 'Name des Render TOP, hinter den die Maske gehängt wird' }),
       )),
   );
+}
+
+/** Bildmodus am Projektor, nur wenn Signal und Panel nicht gleich sind (z. B. 1080p auf 1280 × 800). */
+function imageModeRow(p, set) {
+  const nat = nativeOf(p, S.project);
+  if (!nat || (nat[0] === p.resolution[0] && nat[1] === p.resolution[1])) return null;
+  return r('Bildmodus', select(IMAGE_MODES, p.imageMode || 'fit', (v) => set(() => { p.imageMode = v; }, true), { id: 'selImageMode' }),
+    { tip: `So wie im Menü des Projektors unter Seitenverhältnis eingestellt. Panel ${nat[0]} × ${nat[1]}, Signal ${p.resolution[0]} × ${p.resolution[1]}. Bei Zoom und Nativ schneidet der Projektor einen Teil des Signals ab, das berücksichtigen Kalibrierung und Überblendung. „Voll“ (gestreckt) wird nicht unterstützt.` });
 }
 
 const RESOLUTIONS = [[1920, 1080], [1920, 1200], [1280, 800], [1280, 720], [1024, 768], [3840, 2160]];
@@ -975,7 +1035,11 @@ function renderCalibrate() {
       iconBtn('trash', 'Gewählten Punkt löschen (Entf)', deleteActivePoint, { disabled: !activePoint(), id: 'btnDeletePoint' })),
     rows.length ? el('div', { class: 'group plist' }, ...rows) : group(el('div', { class: 'empty-note' }, p.autoPoints?.length ? 'Die Kamera-Punkte werden verwendet. Punkte von Hand sind optional.' : 'Klicke im 3D-Modell auf eine Ecke, um den ersten Punkt zu setzen.')),
     p.points.length ? el('div', { style: 'padding:6px 4px 0' }, el('button', { class: 'link danger', id: 'btnClearPoints', onclick: clearPoints }, 'Alle Punkte löschen')) : null,
+    group(r('Maus springt mit', switchCtl(!!S.project.view.mouseFollow, (v) => { S.project.view.mouseFollow = v; markDirty(); refresh(); }, { id: 'swMouseCal' }),
+      { tip: 'Nach dem Klick ins Modell springt der Mauszeiger auf die Stelle des neuen Punkts am Ausgang. Dort klicken oder ziehen, dann mit der Maus zurück ins Modell.' })),
     ...cameraGroup(p),
+    gtitle('Standort', infoBtn('Wo der Projektor ungefähr steht. Lösungen, die weiter als die dreifache Toleranz davon entfernt liegen, werden verworfen. So tauchen unsinnige Positionen nicht mehr auf. Bei einem Spiegel zählt das Spiegelbild des Objektivs, also die Stelle hinter dem Spiegel. Am einfachsten nach einer guten Kalibrierung „Übernehmen“ wählen und die Toleranz klein stellen.')),
+    group(...positionRows(p)),
     more('calDetails', 'Details und Hilfen',
       s ? group(
         r('Mittlerer Fehler', el('span', { class: 'muted' }, `${nf(s.rms, 2)} px`)),
@@ -992,6 +1056,27 @@ function renderCalibrate() {
         { tip: 'Wo ungefähr liegt die Mitte des Beamerbildes an der Decke? Ein Klick ins Modell genügt. Hilft bei wenigen oder eng liegenden Punkten.' })),
     ),
   );
+}
+
+/** Standort des Projektors vorgeben (positionPrior für den Solver, Modelleinheiten = Meter). */
+const TOLERANCES = [0.1, 0.25, 0.5, 1, 2];
+function positionRows(p) {
+  const pp = p.positionPrior;
+  const fromSolution = () => p.solution?.center ? p.solution.center.map((c) => Math.round(c * 100) / 100) : null;
+  const setPrior = (v) => { pushUndo(); p.positionPrior = v; scheduleSolve(p); markDirty(); refresh(); };
+  const take = el('button', { class: 'btn', id: 'btnPriorTake', disabled: !p.solution, 'data-tip': 'Aktuelle Position aus der Kalibrierung übernehmen', onclick: () => setPrior({ center: fromSolution(), sigma: pp?.sigma || 0.25 }) }, 'Übernehmen');
+  const rows = [r('Standort vorgeben', switchCtl(!!pp, (v) => setPrior(v ? { center: fromSolution() || [S.model?.center.x || 0, (S.model?.box.min.y ?? 0) - 1, S.model?.center.z || 0].map((c) => Math.round(c * 100) / 100), sigma: 0.5 } : null), { id: 'swPrior' }),
+    { sub: pp ? null : 'Aus: der Projektor darf überall stehen' })];
+  if (!pp) return rows;
+  const axis = (k, name) => input(nf(pp.center[k], 2).replace(',', '.'), (v) => { const x = Number(String(v).replace(',', '.')); if (Number.isFinite(x)) setPrior({ ...pp, center: pp.center.map((c, i) => (i === k ? x : c)) }); }, 'text', { inputmode: 'decimal', 'aria-label': name });
+  rows.push(
+    el('div', { class: 'r stack' }, el('div', { class: 'lbl' }, el('span', {}, 'Position (m)')),
+      el('div', { class: 'ctl' }, el('div', { class: 'pair' }, el('span', {}, 'X'), axis(0, 'X'), el('span', {}, 'Y'), axis(1, 'Y'), el('span', {}, 'Z'), axis(2, 'Z')))),
+    r('Toleranz', el('div', { style: 'display:flex;gap:8px;align-items:center' }, take,
+      select(TOLERANCES.map((t) => [t, `± ${t < 1 ? `${nf(t * 100, 0)} cm` : `${nf(t, 0)} m`}`]), pp.sigma, (v) => setPrior({ ...pp, sigma: Number(v) }), { style: 'width:96px', 'aria-label': 'Toleranz' })),
+      { tip: 'Wie genau der Standort bekannt ist. Kleiner heißt: die Kalibrierung bleibt näher an dieser Position.' }),
+  );
+  return rows;
 }
 
 // ---------- Feinkorrektur (Verzerrungsgitter)
@@ -1156,25 +1241,22 @@ function coach(num, title, text, ok = false) {
   $('#guide').replaceChildren(el('span', { class: `num ${ok ? 'ok' : ''}` }, num), el('span', { class: 't' }, el('b', {}, title), text ? el('span', {}, text) : null));
 }
 
+/**
+ * Statuszeile unten in der 3D-Ansicht. Nur, solange ein Klick ins Modell etwas Besonderes tut
+ * (Bildmitte wählen, Punkt neu setzen, Maske zeichnen). Erklärungen stehen in den Info-Knöpfen.
+ */
 function renderGuide() {
   const g = $('#guide');
   const p = active();
-  const n = enabledPoints(p);
-  const name = displayName(p);
-  if (!S.model) return coach('!', 'Kein 3D-Modell', 'Unter „Einrichten“ laden.');
+  if (!S.model) return g.replaceChildren();
   if (S.mode === 'blend') {
     const m = p.masks.find((x) => x.id === S.activeMaskId);
     if (m && !m.closed) return coach(String(m.points.length), 'Maske zeichnen', 'Rechts Ecken setzen, ersten Punkt anklicken zum Schließen.');
-    if (!Object.keys(S.blendImages).length) return coach('3', 'Masken berechnen', 'Rechts, sobald alles kalibriert ist.');
     return g.replaceChildren();
   }
   if (S.mode !== 'calibrate' || warpEditing()) return g.replaceChildren();
-  if (S.pickCenter) return coach(ic('focus', 16), 'Bildmitte wählen', `Ungefähr die Bildmitte von ${name} anklicken.`);
+  if (S.pickCenter) return coach(ic('focus', 16), 'Bildmitte wählen', `Ungefähr die Bildmitte von ${displayName(p)} anklicken.`);
   if (S.pendingRepick) return coach(String(S.activePointId), `Punkt ${S.activePointId} neu setzen`, 'Die richtige Stelle im Modell anklicken.');
-  if (n === 0 && !activePoint()) return coach('1', 'Ecke im Modell anklicken', `Weit außen im Bild von ${name}.`);
-  if (activePoint() && !p.solution) return coach(String(Math.max(n, 1)), 'Fadenkreuz auf dieselbe Ecke schieben', 'Ziehen oder Pfeiltasten.');
-  if (!p.solution) return coach(String(n + 1), 'Nächste Ecke anklicken', 'Weit weg von den bisherigen.');
-  if (n < 6 || !isGood(S.results[p.id]?.quality)) return coach(String(n + 1), 'Kanten an der Decke prüfen', 'Passt es nicht: Punkt an einem blauen + setzen.');
   g.replaceChildren();
 }
 
@@ -1461,6 +1543,8 @@ function playbackGroup() {
         el('div', { class: 'ctl' }, el('span', { class: 'muted', id: 'playPos' }, posText()))),
       r('Abbildung', select([['top', 'Draufsicht'], ['uv', 'Modell-UV']], pb.mapping, (v) => { pb.mapping = v; markDirty(); refresh(); }),
         { tip: 'Draufsicht legt das Video wie von oben gesehen über den Grundriss, Norden oben. Modell-UV nutzt die Texturkoordinaten aus dem 3D-Modell.' }),
+      r('Drehen', select([[0, '0°'], [90, '90° rechts'], [180, '180°'], [270, '90° links']], pb.rotate || 0, (v) => { pb.rotate = Number(v); markDirty(); refresh(); }, { id: 'selRotate' }),
+        { tip: 'Dreht das Video auf allen Ausgängen, z. B. wenn es nach dem Umstecken oder durch die Lage des Modells auf dem Kopf steht. Die Kalibrierung bleibt unverändert.' }),
       r(list.length > 1 ? 'Liste wiederholen' : 'Schleife', switchCtl(pb.loop, (v) => { pb.loop = v; S.play = { ...S.play, loop: v }; markDirty(); refresh(); })),
       r('Bildrate', select(FPS_CHOICES.map((f) => [f, f ? `${f} fps` : 'Wie Video']), pb.fps || 0, (v) => { pb.fps = Number(v); markDirty(); refresh(); }),
         { tip: 'Höchstens so viele Bilder pro Sekunde ausgeben. „Wie Video“ zeichnet jedes Videobild. Eine niedrigere Rate entlastet die Grafikkarte, z. B. 25 fps für Material mit 50 fps.' }),
@@ -1987,14 +2071,15 @@ function clearPoints() {
 // ------------------------------------------------------------------ Einführung
 const ACC = 'var(--accent)';
 const ART = {
-  welcome: `<svg width="220" height="120" viewBox="0 0 220 120" fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M14 70 Q60 6 110 30 Q160 6 206 70" stroke="currentColor" stroke-width="2" opacity=".55"/>
-    <path d="M40 70 Q75 34 110 46 Q145 34 180 70" stroke="currentColor" stroke-width="1.5" opacity=".35"/>
-    <path d="M110 30 V46" stroke="currentColor" stroke-width="1.5" opacity=".35"/>
-    <path d="M62 112 L30 56 M62 112 L96 40" stroke="#e5645c" stroke-width="1.5"/><path d="M30 56 Q60 30 96 40" stroke="#e5645c" stroke-width="2" opacity=".6"/>
-    <path d="M158 112 L124 40 M158 112 L190 56" stroke="#4b9ddb" stroke-width="1.5"/><path d="M124 40 Q160 30 190 56" stroke="#4b9ddb" stroke-width="2" opacity=".6"/>
-    <path d="M110 112 L86 44 M110 112 L134 44" stroke="#5bb37b" stroke-width="1.5" opacity=".9"/>
-    <circle cx="62" cy="112" r="5" fill="#e5645c"/><circle cx="110" cy="112" r="5" fill="#5bb37b"/><circle cx="158" cy="112" r="5" fill="#4b9ddb"/>
+  // Einfarbig: Gewölbe in Grau, ein Projektor mit seinem Lichtkegel in der Akzentfarbe
+  welcome: `<svg width="210" height="112" viewBox="0 0 240 128" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 62 Q66 -2 120 26 Q174 -2 228 62" stroke="currentColor" stroke-width="1.6" opacity=".5"/>
+    <path d="M40 62 Q80 26 120 38 Q160 26 200 62" stroke="currentColor" stroke-width="1.2" opacity=".28"/>
+    <path d="M120 26 V38 M12 62 H228" stroke="currentColor" stroke-width="1.2" opacity=".22"/>
+    <path d="M120 118 L66 22 Q93 12 120 26 Q147 12 174 22 Z" fill="${ACC}" opacity=".1"/>
+    <path d="M120 118 L66 22 M120 118 L174 22" stroke="${ACC}" stroke-width="1.2" opacity=".55"/>
+    <path d="M66 22 Q93 12 120 26 Q147 12 174 22" stroke="${ACC}" stroke-width="2.2"/>
+    <rect x="109" y="112" width="22" height="11" rx="3" fill="${ACC}"/>
   </svg>`,
   pick: `<svg viewBox="0 0 160 120" width="100%" height="100%" fill="none" stroke-linecap="round" stroke-linejoin="round">
     <path d="M18 98 Q80 10 142 98" stroke="#8e8e93" stroke-width="2"/><path d="M48 98 Q80 50 112 98" stroke="#8e8e93" stroke-width="1.5" opacity=".6"/>
@@ -2011,9 +2096,9 @@ const ART = {
   </svg>`,
   check: `<svg viewBox="0 0 160 120" width="100%" height="100%" fill="none" stroke-linecap="round" stroke-linejoin="round">
     <path d="M18 70 Q80 4 142 70" stroke="#8e8e93" stroke-width="2"/>
-    <path d="M80 112 L30 52 M80 112 L130 52" stroke="#e5645c" stroke-width="1.5"/><path d="M30 52 Q80 8 130 52" stroke="#e5645c" stroke-width="2.5" opacity=".7"/>
-    <circle cx="80" cy="112" r="5" fill="#e5645c"/>
-    <circle cx="128" cy="96" r="12" fill="#32c766"/><path d="M122 96 l4 4 8 -8" stroke="#fff" stroke-width="2"/>
+    <path d="M80 112 L30 52 M80 112 L130 52" stroke="${ACC}" stroke-width="1.2" opacity=".5"/><path d="M30 52 Q80 8 130 52" stroke="${ACC}" stroke-width="2.5"/>
+    <rect x="70" y="106" width="20" height="10" rx="3" fill="${ACC}"/>
+    <circle cx="128" cy="96" r="11" fill="${ACC}"/><path d="M122.5 96 l3.8 3.8 7.2 -7.2" stroke="#fff" stroke-width="2"/>
   </svg>`,
 };
 
@@ -2041,11 +2126,12 @@ function renderOnboarding() {
     () => [
       el('div', { class: 'hero', html: ART.welcome }),
       el('h1', { id: 'obTitle' }, 'Willkommen'),
-      el('p', { class: 'lead' }, 'Richte deine Projektoren am 3D-Modell aus, blende sie weich ineinander und gib das Ergebnis direkt aus.'),
-      feat('monitor', 'Einrichten', 'Modell laden und festlegen, welcher Bildschirm welche Projektoren speist.'),
-      feat('target', 'Kalibrieren', 'Pro Projektor ein paar Ecken im Modell anklicken und auf der echten Decke treffen.'),
-      feat('blend', 'Überblenden', 'Überlappungen, Bogenseiten und Helligkeit werden automatisch ausgeglichen.'),
-      feat('projector', 'Ausgabe', 'Testbilder auf den Projektoren zeigen oder an TouchDesigner übergeben.'),
+      el('p', { class: 'lead' }, 'Projection Studio richtet mehrere Projektoren an einem 3D-Modell des Raums aus, blendet sie zu einem Bild zusammen und spielt Inhalte darauf ab. Vier Schritte:'),
+      el('div', { class: 'feats' },
+      feat('monitor', 'Einrichten', '3D-Modell des Raums laden und festlegen, welcher HDMI-Ausgang welche Projektoren speist, direkt oder über einen Video-Wall-Controller.'),
+      feat('target', 'Kalibrieren', 'Pro Projektor einige Ecken im Modell anklicken und dieselbe Stelle im Raum treffen. Daraus ergeben sich Position, Ausrichtung und Objektiv.'),
+      feat('blend', 'Überblenden', 'Weiche Übergänge in den Überlappungen und gleichmäßige Helligkeit, automatisch aus der Kalibrierung.'),
+      feat('projector', 'Ausgabe', 'Videos über alle Projektoren abspielen oder Kalibrierung und Masken an TouchDesigner übergeben.')),
     ],
     () => [
       el('h1', { id: 'obTitle' }, 'Womit möchtest du starten?'),
@@ -2067,8 +2153,8 @@ function renderOnboarding() {
       el('h1', { id: 'obTitle', style: 'margin-top:8px' }, 'So setzt du einen Punkt'),
       el('p', { class: 'lead' }, 'Vier Punkte pro Projektor reichen für eine erste Lösung. Sechs gut verteilte sind ideal.'),
       el('div', { class: 'how' },
-        el('div', {}, el('div', { class: 'pic', html: ART.pick }), el('b', {}, el('span', { class: 'n' }, '1'), 'Ecke anklicken'), el('span', {}, 'Eine markante Ecke im 3D-Modell anklicken.')),
-        el('div', {}, el('div', { class: 'pic', html: ART.move }), el('b', {}, el('span', { class: 'n' }, '2'), 'Fadenkreuz schieben'), el('span', {}, 'Am Projektor dieselbe Ecke an der Decke treffen, mit Maus oder Pfeiltasten.')),
+        el('div', {}, el('div', { class: 'pic', html: ART.pick }), el('b', {}, el('span', { class: 'n' }, '1'), 'Ecke anklicken'), el('span', {}, 'Einen der weißen Punkte im 3D-Modell anklicken, am besten weit außen im Bild des Projektors.')),
+        el('div', {}, el('div', { class: 'pic', html: ART.move }), el('b', {}, el('span', { class: 'n' }, '2'), 'Fadenkreuz schieben'), el('span', {}, 'Die Maus springt auf den Projektor. Dort das Fadenkreuz auf dieselbe Ecke im Raum ziehen, fein mit den Pfeiltasten.')),
         el('div', {}, el('div', { class: 'pic', html: ART.check }), el('b', {}, el('span', { class: 'n' }, '3'), 'Prüfen'), el('span', {}, 'Ab vier Punkten erscheinen die Kanten. Wo es nicht passt, nachsetzen.'))),
     ],
   ];
@@ -2077,21 +2163,22 @@ function renderOnboarding() {
   let sheet = root.querySelector(':scope > .sheet');
   // Blatt und Fußleiste bleiben stehen, nur der Inhalt gleitet weiter: kein sichtbares Neuladen
   if (!sheet) {
-    sheet = el('div', { class: 'sheet' }, el('div', { class: 'body' }),
+    sheet = el('div', { class: 'sheet' },
+      el('button', { class: 'sheet-close', id: 'obClose', type: 'button', 'aria-label': 'Einführung schließen', 'data-tip': 'Schließen (Esc)', onclick: () => closeOnboarding(false), html: icon('close', 14) }),
+      el('div', { class: 'body' }),
       el('div', { class: 'foot' }, el('div', { class: 'dots' }, ...Array.from({ length: OB_PAGES }, () => el('i')))));
     root.replaceChildren(sheet);
     obShown = -1;
   }
   const body = el('div', { class: 'body' }, ...pages[obPage]());
-  if (obShown >= 0 && obShown !== obPage) body.classList.add(obPage > obShown ? 'ob-next' : 'ob-prev');
+  if (obShown >= 0 && obShown !== obPage) body.classList.add('ob-swap');
   sheet.querySelector('.body').replaceWith(body);
   obShown = obPage;
   const foot = sheet.querySelector('.foot');
   foot.querySelectorAll('.dots i').forEach((d, i) => d.classList.toggle('on', i === obPage));
-  foot.replaceChildren(foot.querySelector('.dots'),
-    !last ? el('button', { class: 'btn ghost', onclick: () => closeOnboarding(false), id: 'obSkip' }, 'Überspringen') : null,
+  foot.replaceChildren(...[foot.querySelector('.dots'),
     obPage > 0 ? el('button', { class: 'btn', onclick: () => { obPage--; renderOnboarding(); } }, 'Zurück') : null,
-    el('button', { class: 'btn primary', id: 'obNext', disabled: obPage === 1 && !S.model, onclick: () => { if (last) closeOnboarding(true); else { obPage++; renderOnboarding(); } } }, last ? `Mit ${displayName(S.project.projectors[0])} beginnen` : 'Weiter'));
+    el('button', { class: 'btn primary', id: 'obNext', disabled: obPage === 1 && !S.model, onclick: () => { if (last) closeOnboarding(true); else { obPage++; renderOnboarding(); } } }, last ? `Mit ${displayName(S.project.projectors[0])} beginnen` : 'Weiter')].filter(Boolean));
   $('#obNext').focus();
 }
 
@@ -2151,6 +2238,19 @@ function toolToggle(id, get, set) {
 toolToggle('#tglCoverage', () => view.showCoverage, (v) => { view.showCoverage = v; });
 toolToggle('#tglFrustums', () => view.showFrustums, (v) => { view.showFrustums = v; });
 toolToggle('#tglSnap', () => view.snap, (v) => { view.snap = v; });
+toolToggle('#tglVertices', () => S.project.view.showVertices !== false, (v) => { S.project.view.showVertices = v; markDirty(); });
+toolToggle('#tglMouse', () => !!S.project.view.mouseFollow, (v) => {
+  S.project.view.mouseFollow = v;
+  markDirty();
+  toast(v ? (S.openOutputs.size ? 'Maus springt zum Projektor' : 'Maus springt zum Projektor, sobald die Ausgänge geöffnet sind') : 'Maus bleibt, wo sie ist');
+});
+/** Schalter, deren Zustand im Projekt steht (ändert sich auch durch Laden und Rückgängig). */
+function syncToolToggles() {
+  for (const [id, on] of [['#tglVertices', S.project.view.showVertices !== false], ['#tglMouse', !!S.project.view.mouseFollow]]) {
+    const b = $(id);
+    if (b.classList.contains('on') !== on) { b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); }
+  }
+}
 
 // Tooltips (ersetzen lange Hilfetexte): erscheinen nach kurzer Verzögerung
 (function tooltips() {

@@ -6,9 +6,9 @@ Projection Studio is a tool for 3D projection mapping on macOS and Windows. It d
 
 ![Calibrate](docs/screenshots/02-kalibriert.png)
 
-> **Beta.** Projection Studio grew out of one specific installation and has been tried there, but hardly anywhere else. Bugs and gaps are likely, see [Features and limits](#features-and-limits). If it still helps someone with their own project, I'm glad.
+> Beta: Projection Studio grew out of one specific installation and has been tried there, but hardly anywhere else. Bugs and gaps are likely, see [Features and limits](#features-and-limits). If it still helps someone with their own project, I'm glad.
 
-**Download:** [macOS (.dmg)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-mac.dmg) · [Windows, installer (.exe)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-Setup.exe) · [Windows, portable (.exe)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-Portable.exe) · [installation notes](#installation)
+Download: [macOS (.dmg)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-mac.dmg) · [Windows, installer (.exe)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-Setup.exe) · [Windows, portable (.exe)](https://github.com/BenjaminJMueller/projection-studio/releases/latest/download/Projection-Studio-Portable.exe) · [installation notes](#installation)
 
 The interface is in German by default. Switch to English under *View → Language* (Ansicht → Sprache) or in the help popover (?).
 
@@ -29,11 +29,11 @@ The software is not tied to this setup. Any geometry available as OBJ can be use
 
 There are a number of established tools for projection mapping, among them:
 
-- **camSchnappr** and **Stoner** as TouchDesigner components (camera calibration from point pairs, and 2D warping)
-- **Kantan Mapper** in TouchDesigner for planar mapping
-- **MadMapper**, **Resolume Arena**, **HeavyM** and **Millumin** for mapping and playback, mostly on flat surfaces and simple geometry
-- media servers such as **disguise**, **Pixera** and **Watchout**, which cover 3D calibration, blending and playback for large productions
-- camera-based auto-calibration, for example from **VIOSO** or **scalable display technologies**
+- camSchnappr and Stoner as TouchDesigner components (camera calibration from point pairs, and 2D warping)
+- Kantan Mapper in TouchDesigner for planar mapping
+- MadMapper, Resolume Arena, HeavyM and Millumin for mapping and playback, mostly on flat surfaces and simple geometry
+- media servers such as disguise, Pixera and Watchout, which cover 3D calibration, blending and playback for large productions
+- camera-based auto-calibration, for example from VIOSO or scalable display technologies
 
 ## Why a separate tool
 
@@ -50,15 +50,23 @@ This led to the requirements for this tool:
 
 ## Technical approach
 
-**Calibration.** Each projector is modelled as a pinhole camera with 9 parameters (rotation, position, focal length, principal point). The solution is a MAP estimate: reprojection error in pixels plus weighted deviations from the lens and position priors, minimised with Levenberg-Marquardt from several starting poses. Mirrored projection is taken into account. The solver runs in a web worker, so the interface stays responsive. Quality is reported as RMS error, positional uncertainty and the spread of the points across the image.
+### Calibration
 
-**Blending.** For each projector the GPU determines which other projectors hit the same surface. Each projector's share follows the irradiance E ∝ cos(angle of incidence) / (distance² · cos³(off-axis angle)), softened towards the image edges and with adjustable gamma. Surfaces beyond a limit angle can be excluded. Custom masks with soft edges are multiplied in.
+Each projector is modelled as a pinhole camera with 9 parameters (rotation, position, focal length, principal point). The solution is a MAP estimate: reprojection error in pixels plus weighted deviations from the lens and position priors, minimised with Levenberg-Marquardt from several starting poses. Mirrored projection is taken into account. The solver runs in a web worker, so the interface stays responsive. Quality is reported as RMS error, positional uncertainty and the spread of the points across the image.
 
-**Fine correction.** Two layers per projector. A grid with 2 × 2 to 33 × 33 control points, columns and rows chosen separately, interpolated bicubically (Hermite). Without further edits this equals Catmull-Rom; optionally Bézier handles can be dragged at each grid point to bend the lines. On top come freely placed points anywhere in the image. Each acts through a Wendland kernel with limited reach, and the weights are solved so that every point hits its target exactly. A newly placed point pins the image in place until it is dragged. If the image folds over because of too strong corrections, the app warns.
+### Blending
+
+For each projector the GPU determines which other projectors hit the same surface. Each projector's share follows the irradiance E ∝ cos(angle of incidence) / (distance² · cos³(off-axis angle)), softened towards the image edges and with adjustable gamma. Surfaces beyond a limit angle can be excluded. Custom masks with soft edges are multiplied in.
+
+### Fine correction
+
+Two layers per projector. A grid with 2 × 2 to 33 × 33 control points, columns and rows chosen separately, interpolated bicubically (Hermite). Without further edits this equals Catmull-Rom; optionally Bézier handles can be dragged at each grid point to bend the lines. On top come freely placed points anywhere in the image. Each acts through a Wendland kernel with limited reach, and the weights are solved so that every point hits its target exactly. A newly placed point pins the image in place until it is dragged. If the image folds over because of too strong corrections, the app warns.
 
 For output the mapping is inverted: for every output pixel its source position, using Newton's method. In the app this happens in a background thread as a lookup table (coarse while dragging, then 480 × 270 samples, error below 0.2 px) that the GPU interpolates linearly. The cost per frame therefore does not depend on the number of points. For TouchDesigner a GLSL shader is generated with the same values as constants, computing the inverse directly. It matches the app to about 0.001 px.
 
-**Output and playback.** One full-screen window per output. Each projector is rendered into its own multisampled render target and then placed into its cell in a single pass together with fine correction and mask. Video is mapped onto the model (top view or model UVs). All windows follow a shared clock and correct small drift via playback rate, larger drift by seeking.
+### Output and playback
+
+One full-screen window per output. Each projector is rendered into its own multisampled render target and then placed into its cell in a single pass together with fine correction and mask. Video is mapped onto the model (top view or model UVs) and can be rotated in 90° steps. All windows follow a shared clock and correct small drift via playback rate, larger drift by seeking.
 
 ## Outputs and video wall controllers
 
@@ -66,29 +74,54 @@ The app supports video wall controllers (also called video wall processors) that
 
 Reasons for this approach:
 
-- **More projectors on one computer.** Typical graphics cards have four outputs, often fewer. With two controllers, eight projectors run from two outputs.
-- **Same frame timing.** The four projectors on one controller receive their images from one shared 4K frame.
-- **Simple on the software side.** To the operating system each controller is a single 4K display. The app opens one full-screen window on it and places the four projector images into the cells.
+- More projectors on one computer: Typical graphics cards have four outputs, often fewer. With two controllers, eight projectors run from two outputs.
+- Same frame timing: The four projectors on one controller receive their images from one shared 4K frame.
+- Simple on the software side: To the operating system each controller is a single 4K display. The app opens one full-screen window on it and places the four projector images into the cells.
 
 Under *Set up* the controller mode is chosen per output: *2 × 2*, *2 side by side*, *2 stacked*, *3 side by side*, *4 side by side* or *4 stacked*, or *1 projector* when a projector is connected directly. The quick choice *Direct, one per output* creates up to four HDMI outputs with one projector each, *Via controller* four per output. The projectors of that output are then assigned to the cells in order. If the display resolution does not match the mode, a hint appears next to it. On the controller itself, use the plain mode without bezel correction; overlap and blending are handled by the app.
 
 Displays are assigned from a menu. Outputs open borderless and full screen on the chosen display, on macOS and Windows. The assignment is kept after unplugging or a change of resolution.
 
-For calibration there is also an optional **test output**. It always shows the currently selected projector full frame, handy when connecting one projector at a time for setup. A permanently connected projector gets a normal HDMI output with *1 projector* instead. With the *Mouse follows* option, the mouse pointer jumps to that projector's image when switching projectors, on the test output or in the right cell of the controller.
+For calibration there is also an optional test output. It always shows the currently selected projector full frame, handy when connecting one projector at a time for setup. A permanently connected projector gets a normal HDMI output with *1 projector* instead. With *Mouse follows* the pointer jumps to the right cell automatically, see [Calibrate](#2-calibrate).
 
 ## Workflow
 
-1. **Set up.** Load the model, enable projectors, set lens, mirror, resolution, output and cell.
-2. **Calibrate.** Select a projector, click distinctive points in the model and hit them in the projected image, with the mouse on the projector, in the preview or with the arrow keys (1 px, with ⇧ 10 px). Or use a camera and test patterns (see below). Compensate remaining errors in the *Fine correction* tab.
-3. **Blend.** Compute masks, adjust the limit angle and transitions, draw custom masks.
-4. **Output.** Test patterns or a video playlist on the projectors, audio to the speakers, room tuning, export or live link to TouchDesigner.
+The app guides you through four steps, switched at the top centre. The projector list is on the left, the 3D view in the middle, and the projector image with the settings of the current step on the right. Explanations of individual settings sit behind the info icons (i).
+
+### 1. Set up
+
+Load the 3D model (OBJ, units in metres), then set type, mounting, signal resolution, output and cell for each projector. For projectors from the built-in list, throw ratio and lens axis position come from the datasheet; custom types can be created from datasheet values.
+
+Under *Displays*, each HDMI output gets a display and a layout, such as *2 × 2* for a video wall controller. The cells of each output are shown as a small grid. To assign, select a projector on the left and click its cell. If another projector is already there, the two swap places, and the next projector is selected automatically. Eight projectors take eight clicks. Which projector shows which image can be read straight off the ceiling with the *Number* test image under *Output*.
+
+If a projector receives a signal that does not match its panel (e.g. 1920 × 1080 on a 1280 × 800 panel), the *Image mode* setting appears. It has to match the projector's menu (aspect ratio): *Normal / 16:9* shows the whole signal with borders, *Zoom* fills the panel and crops the sides, *Native* shows the pixels 1:1 and crops all round. Calibration, 3D view, preview and blending use the part that is actually visible. A stretched image (*Full*) is not supported because the pixels are then no longer square.
+
+### 2. Calibrate
+
+For each projector you set points that mark the same spot in the model and in the room. The possible points, i.e. corners and ridges of the model where a click snaps, are shown in the 3D view as small white dots. Hold Alt to pick a free spot instead.
+
+For one point: click a corner in the model. With *Mouse follows* on (mouse icon at the top right of the 3D view, or the switch on the right), the pointer then jumps to the new point on the right projector, also through a video wall controller. Drag the crosshair onto the same corner in the room there, fine-tune with the arrow keys (1 px, with ⇧ 10 px, with Alt 0.25 px). The point can also be moved in the preview on the right.
+
+Four points give a first solution, six points spread well over the image are ideal. The projection then appears in colour on the model and as an edge image on the projector, so the result can be checked directly. Points that do not fit are marked red or orange. Dashed blue circles suggest places for further points.
+
+Under *Location* you can set roughly where the projector is, with a tolerance from 10 cm to 2 m. Solutions further away than three times the tolerance are discarded, so implausible positions no longer appear. Easiest: after a good calibration choose *Take over* and set a small tolerance. With a mirror, the mirror image of the lens counts, i.e. the spot behind the mirror. The 3D view shows the range as a sphere.
+
+Alternatively a webcam measures the projector with test patterns (see [Calibration with a camera](#calibration-with-a-camera)). Remaining errors, for example from lens distortion, are corrected in the *Fine correction* tab with a grid and freely placed points.
+
+### 3. Blend
+
+Masks are created from all calibrated projectors: soft transitions where images overlap, even brightness across the whole surface, and hidden surfaces that are too steep or only hit at a grazing angle. Transition width, gamma, limit angles and the strength of the brightness compensation are adjustable. Custom masks are drawn in the preview as polygons with a soft edge and hide an area or show only that area.
+
+### 4. Output
+
+The outputs open as borderless full-screen windows on the assigned displays. Test images (edges, grid, white, number) help with checking. Videos play as a playlist across all projectors, mapped from above onto the floor plan (top view) or via the model's texture coordinates. If the video is the wrong way round, it can be rotated in 90° steps under *Rotate*. Audio goes to up to 32 speakers; room tuning aligns delay, level and tone. For TouchDesigner there is an export and a live link (see [TouchDesigner](#touchdesigner)).
 
 <p>
   <img src="docs/screenshots/04-blending.png" width="49%" alt="Blend">
   <img src="docs/screenshots/09-feinkorrektur.png" width="49%" alt="Fine correction">
 </p>
 
-Projects are saved automatically, and every step can be undone. On first launch an introduction walks through the setup and offers to start with the demo. The screenshots show the German interface.
+Projects are saved automatically, and every step can be undone. On first launch an introduction explains the steps and offers to start with the demo. It can be reopened at any time via *Help* (?) and closed at the top right. The screenshots show the German interface.
 
 ## Multiple computers
 
@@ -100,7 +133,9 @@ If one computer's outputs are not enough, other computers on the same network ca
 
 The project, masks and every change go live to the output computers. Model and videos are copied once (cache in the app's user folder); until then videos are streamed over the network. Playback runs on a shared clock: each output computer continuously measures its clock offset to the main computer (like NTP) and aligns its videos to it.
 
-**Precise sync** (Output → Playback, off by default): each output measures for every video frame when it actually reaches the screen and corrects from that instead of estimating. Costs a few calculations per frame. When on, a delay in ms can be set per HDMI output to compensate fixed differences (e.g. a projector with longer image processing). To adjust: show the edges pattern, play fast motion and change the delay until the edge is steady. Measured in the test VM (`test/e2e/sync-measure.mjs`): the offset to the clock varies between about 7 and 24 ms without, and stays within about 2 ms with; not yet measured on real hardware.
+### Precise sync
+
+Under Output → Playback, off by default. Each output measures for every video frame when it actually reaches the screen and corrects from that instead of estimating. Costs a few calculations per frame. When on, a delay in ms can be set per HDMI output to compensate fixed differences (e.g. a projector with longer image processing). To adjust: show the edges pattern, play fast motion and change the delay until the edge is steady. Measured in the test VM (`test/e2e/sync-measure.mjs`): the offset to the clock varies between about 7 and 24 ms without, and stays within about 2 ms with; not yet measured on real hardware.
 
 Limits: without hardware genlock the computers can be up to about one frame apart, which can be visible at blend edges with fast motion. Sound only comes from the main computer. Wired LAN is recommended. The app uses TCP 47810, UDP 47811 and TCP 47812 and only accepts connections from the local network, without a password. On first start macOS asks on each computer whether the app may find devices on the local network: choose *Allow* (later under System Settings → Privacy & Security → Local Network). If the macOS firewall is on, the main computer shows an *Allow …* button. On Windows the firewall asks on first start. After an app update macOS may ask again, because the app is not notarised by Apple. Tested on Linux and on a macOS 26 machine at GitHub (two app instances over the LAN address, firewall on), not yet with two separate computers.
 
@@ -114,7 +149,7 @@ Limits: without hardware genlock the computers can be up to about one frame apar
 | Resolution per projector | 1920 × 1080, 1920 × 1200, 1280 × 800, 1280 × 720, 1024 × 768, 3840 × 2160 or the native resolution of the projector type (resolution of the signal) |
 | 3D model | OBJ only; materials and textures are ignored. The demo has about 16,000 triangles; much larger models are untested. |
 | Projector types | database of verified datasheet values (Epson EB-535W, BenQ MW632ST, Optoma GT1080HDR, Epson EB-L1050U, Panasonic PT-VMZ60), custom types from a datasheet (native resolution, throw ratio, zoom, fixed offset or lens shift), plus generic presets. Lens distortion is not modelled; fine correction compensates the rest. |
-| Calibration | by hand from 4 point pairs (6 well-spread points are ideal) or with a camera and test patterns, see below |
+| Calibration | by hand from 4 point pairs (6 well-spread points are ideal) or with a camera and test patterns, see below. Possible points (corners and ridges of the model) are shown in the 3D model. Optionally set the projector's location with a tolerance and the projector's image mode (Normal/16:9, Zoom, Native). |
 | Fine correction | grid of 2 to 33 control points per direction, optional Bézier handles, up to 200 free points per projector |
 | Masks | automatic blending, custom polygon masks with soft edges |
 | Video | playlist, play/pause with the space bar, adjustable frame rate (free, 24, 25, 30, 50, 60), display of the current frame rate. Formats Chromium can play: H.264 and AAC in MP4/MOV, VP8, VP9 and AV1 in WebM/MKV. H.265/HEVC only where the system decodes it in hardware. ProRes, HAP, DXV and image sequences are not supported. A frame may hold briefly between two playlist videos. The achievable resolution depends on decoder and graphics card. |
@@ -124,10 +159,12 @@ Limits: without hardware genlock the computers can be up to about one frame apar
 | Languages | German (default), English |
 | Systems | macOS 11 or later (Apple Silicon and Intel), Windows 10/11 64-bit; graphics card with WebGL 2 |
 
+Tested in the real installation (November 2026): MacBook Pro with M4 Pro, 8 × Epson EB-535W, two HDMI splitters / video wall controllers LogiLink HD0054 (2 × 2 each). Calibration and playback worked there.
+
 Known limitations:
 
 - The Mac app is not signed or notarised by Apple, so the first launch needs a workaround (see below).
-- No automatic updates while the repository is private.
+- No automatic updates.
 - Performance with 8 projectors on 2 × 4K (let alone 16) has not yet been measured on the target machine. The app shows the frame rate per output.
 - *Mouse follows* and switching between displays have not yet been tried on real hardware under macOS and Windows.
 - The TouchDesigner integration is tested against a mock of the TD API, and only partly on a real installation.
@@ -140,9 +177,9 @@ Known limitations:
 
 Instead of setting points by hand, a webcam (e.g. Logitech StreamCam) can measure a projector. For each projector, the *Calibrate with camera …* assistant (in *Calibrate*) does this:
 
-1. **Aim.** The projector and an already calibrated neighbour show a checkerboard. The camera is set up firmly so that it sees as much of the projector as possible and part of the neighbour. A sharpness meter with a best-value marker helps with focusing.
-2. **Measure.** Exposure, focus and white balance are locked as far as the camera allows. Then both projectors show stripe patterns one after another (Gray code with inverses, about 15 seconds per projector). The neighbour gives the camera position; the projector gives the point pairs for the solver.
-3. **Result.** Error, coverage of the projector image and a sharpness map. If the camera does not see everything, add another position; the points of all positions are used together. Camera points can be combined with points set by hand.
+1. Aim: The projector and an already calibrated neighbour show a checkerboard. The camera is set up firmly so that it sees as much of the projector as possible and part of the neighbour. A sharpness meter with a best-value marker helps with focusing.
+2. Measure: Exposure, focus and white balance are locked as far as the camera allows. Then both projectors show stripe patterns one after another (Gray code with inverses, about 15 seconds per projector). The neighbour gives the camera position; the projector gives the point pairs for the solver.
+3. Result: Error, coverage of the projector image and a sharpness map. If the camera does not see everything, add another position; the points of all positions are used together. Camera points can be combined with points set by hand.
 
 Blur is detected from the patterns themselves: fine stripes only have full contrast when camera and projector are in focus, measured at a stripe width that matches the camera distance. If the image is blurry, the camera refocuses briefly and measures again. If that does not help, the assistant pauses, shows the checkerboard and guides you to the focus ring of the projector, with a live meter. Camera movement or lighting changes during the measurement are detected and the measurement is repeated.
 
@@ -160,7 +197,7 @@ xattr -dr com.apple.quarantine "/Applications/Projection Studio.app"
 
 On Windows, SmartScreen may complain. Click *More info* and then *Run anyway*.
 
-An auto-updater is built in but switched off, because the app cannot read the releases of a private repository without signing in. To use it, put the address of a publicly reachable `latest.json` under `updateFeed` in `package.json`. The build already produces that file.
+An auto-updater is built in but switched off. To use it, put the address of a publicly reachable `latest.json` under `updateFeed` in `package.json`. The build already produces that file.
 
 ## TouchDesigner
 
@@ -214,4 +251,4 @@ test/           tests and test video
 
 ## Licence
 
-Private, all rights reserved, see [LICENSE](LICENSE). three.js is MIT-licensed.
+[PolyForm Noncommercial 1.0.0](LICENSE): use, modification and sharing are allowed for noncommercial purposes, e.g. teaching, research, personal use, or by charitable organisations and public institutions. Commercial use only by arrangement. three.js is MIT-licensed.
